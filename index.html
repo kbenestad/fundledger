@@ -1,23 +1,23 @@
 <!DOCTYPE html>
 <!--
   ════════════════════════════════════════════════════════════════════════════
-  basis — STANDALONE STARTER (shares the bizdocs look, NOT part of the series).
+  Fund Ledger — donations & disbursements ledger for a single fund.
 
-  Unlike _template/ (which links the monorepo's ../assets/), this app is
-  self-contained: it bundles its own copy of the shared design + runtime in
-  ./assets/. Those three files (style.css, ui.css, app.js) are kept
-  BYTE-IDENTICAL to bizdocs' shared assets so a bizdocs UI change can be dropped
-  straight in — see ./README.md and ./sync.sh.
+  Built from the bizdocs "basis" standalone starter (see CLAUDE.md/DESIGN.md),
+  with one deliberate architectural deviation, decided with the user and
+  documented in FUND_LEDGER_PLAN.md: this app runs from file:// with NO server,
+  so it cannot fetch() a config.yml. Instead:
 
-  To build a real app from this folder:
-    1. Set <title>, the doc-title <h1>, and the 'basis-lang' localStorage key.
-    2. Replace buildExampleCard() with your form (use kb-* components) and
-       onDownload() with your real PDF (use pdf-lib).
-    3. Fill in config.yml: keep the header keys; add ui: strings to EVERY
-       language block; route all copy through S().
-    4. Drop a real favicon / PWA icon set into ./assets/.
-  Don't hand-rewrite the chrome (head, toolbar, header, footer) — keeping it as
-  shipped is what keeps the app pixel-identical to bizdocs.
+    - The BOOT CONFIG (branding + localisation + seed defaults) is embedded
+      inline in this file — see the <script type="text/yaml" id="boot-config">
+      block just below, kept near the top of the file so it is easy to edit.
+    - The OPERATIONAL config lives as config.yml INSIDE the ledger data folder,
+      read/written through the File System Access API, and edited in the app's
+      Configuration tab.
+
+  Chromium-only (Chrome / Vivaldi / Edge): the File System Access API does not
+  exist in Firefox or Safari. ID-card extraction reuses capture.js verbatim
+  from kbenestad/idcardreader (see assets/capture.js).
   ════════════════════════════════════════════════════════════════════════════
 -->
 <html lang="en">
@@ -25,9 +25,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="format-detection" content="telephone=no">
-<title>Basis</title>
+<title>Fund Ledger</title>
 
-<!-- Favicons / PWA. Drop a full icon set into assets/ for a real app. -->
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="assets/site.webmanifest">
 <meta name="theme-color" content="#2f6fed">
@@ -37,85 +36,582 @@
   (function(){var t=localStorage.getItem('kb-theme');if(t)document.documentElement.setAttribute('data-theme',t);})();
 </script>
 
-<!-- CDN libraries: js-yaml (all apps) + pdf-lib (PDF output; new apps use pdf-lib). -->
-<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-<script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<!-- ══════════════════════════════════════════════════════════════════════════
+     BOOT CONFIG — kept near the top of the file (decision: config cannot be
+     fetch()ed over file://, so it lives inline; the Configuration tab edits
+     the ledger folder's own config.yml, not this block).
+     Branding, an optional inline mdcms theme block, and all UI strings.
+     ══════════════════════════════════════════════════════════════════════════ -->
+<script type="text/yaml" id="boot-config">
+# Organization
+organization:                # leave blank to show the kBenestad wordmark
+logo: no                     # yes|no — if yes, loads assets/logo.png or logo.jpg
+tagline:                     # subtitle below the org name (falls back to ui.subtitle)
 
-<!-- Shared design + runtime — LOCAL copies (self-contained / standalone).
-     Kept byte-identical to bizdocs assets/. app.js MUST load before the inline <script>. -->
+# Branding — overrides the --accent token for this app
+accent-colour: "#2f6fed"
+
+# Suite-wide theme (optional). Either a full INLINE mdcms theme block (palette,
+# colours-semantic, fonts — the "mdcms v0.4" keys; applied fetch-free via the
+# shared kbApplyThemeToDoc(), so it works over file://), or a path string to a
+# vendored theme file (fetched — only works when hosted over HTTP).
+# Leave blank for the app's own default look.
+theme:
+
+# Default Tesseract OCR language for ID-card extraction (a template may override)
+ocr-language: eng
+
+# ── Localisation ─────────────────────────────────────────────────────────────
+localisation:
+  default-language: en
+
+  languages:
+    - code: en
+      name: English
+
+  en:
+    about:
+      title: "About"
+      button: "Close"
+      content: |
+        ### Fund Ledger
+        Tracks donations and disbursements for a single fund. All data lives in
+        a **ledger folder on your own disk** — nothing is uploaded anywhere.
+        Records are immutable, append-only files; `Ledger.html` in the folder
+        is a self-contained index and dashboard you can open in any browser.
+
+        Requires a Chromium browser (Chrome, Vivaldi, Edge): the File System
+        Access API this app is built on does not exist in Firefox or Safari.
+
+        ID-card data capture is built on
+        [kbenestad/idcardreader](https://github.com/kbenestad/idcardreader).
+
+        **Source:** [kbenestad/fundledger](https://github.com/kbenestad/fundledger)
+    ui:
+      subtitle: "Donations & disbursements ledger"
+      # Tabs
+      tab-dashboard: "Dashboard"
+      tab-disbursement: "Disbursement"
+      tab-beneficiary: "Beneficiary"
+      tab-donation: "Donation"
+      tab-donor: "Donor"
+      tab-configuration: "Configuration"
+      # Open / connect
+      open-title: "Ledger folder"
+      open-intro: "Open (or create) the folder that holds this fund's ledger. The app creates the folder structure, a config.yml and default document templates on first use, and remembers the folder for next time."
+      btn-open-folder: "Open ledger folder…"
+      btn-reconnect: "Reconnect to {name}"
+      reconnect-note: "Your browser needs a one-click confirmation to regain access to the ledger folder. This is a browser security limit, not an error."
+      browser-unsupported: "This browser does not support the File System Access API. Fund Ledger requires a Chromium browser: Chrome, Vivaldi or Edge."
+      open-cancelled: "Folder selection was cancelled."
+      fs-error: "File system error: {error}"
+      config-parse-error: "The ledger folder's config.yml could not be parsed: {error}"
+      not-connected-note: "Open a ledger folder on the Dashboard tab first."
+      # Dashboard
+      dash-fund: "Fund"
+      total-donations: "Donations received"
+      total-disbursements: "Disbursements made"
+      balance: "Balance"
+      dash-counts: "Records"
+      count-beneficiaries: "Beneficiaries"
+      count-donors: "Donors"
+      count-donations: "Donations"
+      count-disbursements: "Disbursements"
+      recent-activity: "Recent activity"
+      no-activity: "No records yet."
+      btn-rebuild-index: "Rebuild index"
+      rebuild-done: "Index rebuilt from record files: {b} beneficiaries, {d} donors, {don} donations, {dis} disbursements."
+      btn-close-ledger: "Close ledger"
+      close-ledger-title: "Close ledger?"
+      close-ledger-message: "The app will forget this folder (nothing on disk is deleted). You can reopen it any time."
+      ledger-file-note: "Ledger.html inside the folder is a standalone copy of this dashboard — open it directly to browse records without the app."
+      connected-as: "Connected folder: {name}"
+      # Generic form / actions
+      save: "Save"
+      cancel: "Cancel"
+      create: "Create"
+      remove: "Remove"
+      regenerate: "New code"
+      select-placeholder: "— select —"
+      required-error: "Required"
+      invalid-number: "Not a number"
+      number-range-error: "Must be between {min} and {max}"
+      date-early-error: "Date is before the allowed range"
+      date-late-error: "Date is after the allowed range"
+      form-invalid: "Please fix the highlighted fields."
+      none-yet: "None yet."
+      # Persons
+      beneficiaries-title: "Beneficiaries"
+      donors-title: "Donors"
+      btn-new-beneficiary: "New beneficiary"
+      btn-new-donor: "New donor"
+      choose-entry-title: "How do you want to enter this record?"
+      choose-entry-message: "Read the data from an ID document, or type everything by hand."
+      mode-idcard: "ID Card Reader"
+      mode-plaintext: "Type manually"
+      person-saved: "{id} saved."
+      col-id: "ID"
+      col-name: "Name"
+      col-created: "Created"
+      no-persons: "No records yet — create the first one."
+      new-b-title: "New beneficiary"
+      new-d-title: "New donor"
+      id-data-applied: "ID document data applied — review the fields below, complete the rest, then save."
+      # Money records
+      btn-save-record: "Save record & print"
+      need-persons-first: "Create at least one {kind} first — this record must reference one."
+      kind-beneficiary: "beneficiary"
+      kind-donor: "donor"
+      record-saved: "Record {reference} saved."
+      documents-title: "Generated documents"
+      btn-print: "Print"
+      print-auto-note: "The first document opened a print dialog automatically; print the others from the buttons above."
+      template-missing: "Template \"{name}\" was not found in Templates/ — no document generated for it."
+      col-reference: "Reference"
+      col-date: "Date"
+      col-amount: "Amount"
+      col-person: "Linked record"
+      # ID capture flow
+      capture-hint: "Drop a photo, scan or PDF of the document here — or"
+      btn-upload: "Choose file"
+      pick-page: "This PDF has several pages — click the page that shows this side."
+      use-this-image: "Use this image"
+      btn-extract: "Extract fields"
+      extracting: "Extracting — OCR can take a moment…"
+      section-review: "Review extracted fields"
+      reviewed-label: "Reviewed"
+      conflict-note: "OCR and QR disagree — pick one or type the correct value:"
+      source-ocr: "OCR"
+      source-qr: "QR"
+      field-empty: "(empty)"
+      btn-apply-id: "Use these values"
+      start-over: "Start over"
+      recapture: "Recapture"
+      step-front: "Front"
+      step-back: "Back"
+      no-back-note: "This document type has no back side to capture."
+      zoom-hint: "Click to enlarge"
+      id-template-missing: "The ID template \"{name}\" is not embedded in this app — falling back to manual entry."
+      raw-qr-label: "Raw QR payload"
+      # Record / document output strings (baked into generated files)
+      rec-generated-on: "Generated"
+      rec-copy: "Copy"
+      rec-copied: "Copied!"
+      rec-images: "Images"
+      rec-documents: "Documents"
+      rec-generated-by: "Generated by Fund Ledger — this file is part of the ledger's paper trail; do not edit."
+      ledger-title: "Ledger"
+      ledger-note: "This file is rewritten by Fund Ledger on every action. It is an index — the record files themselves are the paper trail."
+      sig-signature: "Signature"
+      sig-date: "Date"
+      # Configuration tab
+      config-title: "Configuration"
+      cfg-intro: "This edits config.yml inside the ledger folder. Changes apply to new records; existing record files are never rewritten."
+      cfg-fund: "Fund & currency"
+      cfg-modes: "Entry modes"
+      cfg-beneficiary: "Beneficiary fields"
+      cfg-donor: "Donor fields"
+      cfg-donation: "Donation fields"
+      cfg-disbursement: "Disbursement fields"
+      cfg-lists: "Drop-down lists"
+      cfg-theme: "Theme"
+      cfg-raw: "Raw YAML"
+      open-all: "Open all"
+      close-all: "Close all"
+      btn-save-config: "Save configuration"
+      config-saved: "Configuration saved to config.yml."
+      fund-name: "Fund name"
+      currency-code: "Currency code"
+      currency-symbol: "Currency symbol"
+      currency-position: "Symbol position"
+      pos-before: "Before the amount"
+      pos-after: "After the amount"
+      mode-for: "{kind} entry mode"
+      id-template-for: "{kind} ID template"
+      fld-fieldname: "fieldname"
+      fld-label: "label"
+      fld-type: "type"
+      fld-extra: "other keys (YAML)"
+      add-field: "Add field"
+      move-up: "Move up"
+      move-down: "Move down"
+      prints-label: "Documents printed on creation (template names from Templates/, one per line)"
+      list-name: "List name"
+      list-values: "Values — one per line, as: value, Label shown"
+      add-list: "Add list"
+      theme-hint: "Optional inline mdcms theme block (palette / colours-semantic / fonts). Leave empty for the default look. Applied immediately on save."
+      theme-parse-error: "Theme block is not valid YAML: {error}"
+      raw-hint: "The whole config.yml as text. \"Apply\" replaces the working copy above with this text (it must parse); \"Save configuration\" then writes it to disk."
+      btn-apply-raw: "Apply raw YAML"
+      raw-applied: "Raw YAML applied to the working copy — review the sections above, then save."
+      raw-parse-error: "Raw YAML does not parse: {error}"
+</script>
+
+<!-- CDN libraries — decision (FUND_LEDGER_PLAN.md §2): CDN for what actually
+     works online. js-yaml is needed at boot; the extraction stack (Tesseract,
+     jsQR, PDF.js) only for ID-card capture. A browser that has cached these
+     works offline for the ledger core. -->
+<script src="https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script type="module">
+  import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.1.200/build/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.1.200/build/pdf.worker.min.mjs';
+  window.pdfjsLib = pdfjsLib;
+</script>
+
+<!-- Shared design + runtime (byte-identical bizdocs copies) + app-owned
+     capture.js (verbatim copy from kbenestad/idcardreader). -->
 <link rel="stylesheet" href="assets/style.css">
 <link rel="stylesheet" href="assets/ui.css">
 <script src="assets/app.js"></script>
+<script src="assets/capture.js"></script>
 
-<!-- App-specific styles ONLY (the shared look lives in assets/*.css).
-     Put column grids / bespoke layout here; empty is fine to start. -->
+<!-- App-specific styles ONLY (the shared look lives in assets/*.css). -->
 <style>
-/* e.g. .basis-row { display:grid; grid-template-columns: 1fr 1fr auto; gap:8px; } */
-
-/* buildTabsDemo()'s panel body — kb-tab-panel itself has no default padding
-   (it's just a display:none/block switch), so panel content needs its own
-   spacing/colour, same as any other app would add for its own tab content. */
-.basis-tab-body { padding-top: 14px; color: var(--text-soft); line-height: 1.6; }
-
-/* Version footer block (see CLAUDE.md → Footer). kb-footer itself has no
-   spacer/right-hand slot in the shared ui.css, so both live here. */
+/* Version footer block (see CLAUDE.md → Footer). */
 .kb-footer .spacer { flex: 1; }
-.basis-version { text-align: right; line-height: 1.4; }
-.basis-version > * { display: block; }
+.fl-version { text-align: right; line-height: 1.4; }
+.fl-version > * { display: block; }
+
+/* Tab panel body spacing (kb-tab-panel has no default padding). */
+.fl-tab-body { padding-top: 14px; }
+
+/* Dashboard */
+.fl-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.fl-stat { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; background: var(--surface); }
+.fl-stat .lab { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+.fl-stat .val { font-size: calc(var(--fs-h1) * .95); font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.fl-stat.neg .val { color: var(--danger); }
+.fl-muted { color: var(--text-muted); font-size: var(--fs-small); }
+
+/* Simple record tables */
+.fl-table { width: 100%; border-collapse: collapse; font-size: var(--fs-body); }
+.fl-table th { text-align: left; font-size: var(--fs-label); text-transform: uppercase; letter-spacing: .03em;
+  color: var(--text-muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border-strong); }
+.fl-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.fl-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Config field editor rows */
+.fl-fieldrow { display: grid; grid-template-columns: 1fr 1fr 150px 1.4fr auto; gap: 8px; align-items: start;
+  padding: 8px 0; border-top: 1px solid var(--border); }
+.fl-fieldrow:first-of-type { border-top: 0; }
+@media (max-width: 760px) { .fl-fieldrow { grid-template-columns: 1fr 1fr; } }
+.fl-fieldrow textarea { font-family: var(--font-mono); font-size: var(--fs-small); }
+.fl-rowbtns { display: flex; gap: 4px; }
+.fl-mono { font-family: var(--font-mono); font-size: var(--fs-small); }
+
+/* ── ID capture flow (classes emitted by capture.js + the review pattern,
+      copied from idcardreader so the vendored capture.js renders correctly) ── */
+.idc-drop { border: 1px dashed var(--accent-border); border-radius: var(--radius); background: var(--accent-soft);
+  padding: 22px; text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.idc-drop.is-over { border-color: var(--accent); background: var(--surface-3); }
+.idc-drop .hint { color: var(--text-muted); font-size: var(--fs-small); }
+.idc-sides { display: flex; flex-direction: column; gap: 20px; }
+.idc-preview { max-width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.idc-croptools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.idc-croptools__angle { font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 3.5ch; text-align: center; }
+.idc-stage { position: relative; display: inline-block; max-width: 100%; line-height: 0;
+  background: var(--surface-3); border-radius: var(--radius-sm); touch-action: none; overflow: visible; }
+.idc-stage__img { display: block; max-width: 100%; cursor: crosshair; }
+.idc-crop { position: absolute; border: 2px solid var(--accent); cursor: move; }
+.idc-crop-mask { position: absolute; inset: 0; background: rgba(20,24,30,.45); pointer-events: none; }
+.idc-crop__h { position: absolute; width: 12px; height: 12px; background: var(--accent);
+  border: 2px solid #fff; border-radius: 50%; }
+.idc-crop__h--nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.idc-crop__h--ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.idc-crop__h--sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.idc-crop__h--se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.idc-crop__h--n { left: 50%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
+.idc-crop__h--s { left: 50%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
+.idc-crop__h--w { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.idc-crop__h--e { right: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.idc-align-guide { position: absolute; border: 2px dashed var(--warning); background: rgba(201,133,31,.10);
+  pointer-events: none; box-sizing: border-box; }
+.idc-align-guide--2 { border-color: var(--info); background: rgba(47,111,237,.10); }
+.idc-align-guide__tag { position: absolute; top: 2px; left: 2px; font-size: 10px; line-height: 1.5;
+  background: rgba(160,95,0,.82); color: #fff; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+.idc-align-guide--2 .idc-align-guide__tag { background: rgba(30,75,180,.82); }
+.idc-thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.idc-thumb { border: 2px solid var(--border-strong); border-radius: var(--radius-sm); padding: 4px; cursor: pointer; background: var(--surface); }
+.idc-thumb:hover { border-color: var(--accent); }
+.idc-thumb img { display: block; max-height: 150px; }
+.idc-thumb .n { text-align: center; font-size: var(--fs-small); color: var(--text-muted); }
+.idc-fieldrow { display: grid; grid-template-columns: 120px 1fr auto; gap: 14px; align-items: start;
+  padding: 12px 0; border-top: 1px solid var(--border); }
+.idc-fieldrow:first-of-type { border-top: 0; }
+.idc-fieldrow.is-conflict { background: var(--warning-soft); border-radius: var(--radius-sm); padding: 12px; border-top: 0; margin: 6px 0; }
+@media (max-width: 640px){ .idc-fieldrow { grid-template-columns: 1fr; } }
+.idc-regimg { width: 120px; max-height: 80px; object-fit: contain; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-3); }
+.idc-photoimg { width: 100%; max-height: 360px; object-fit: contain; border-radius: 4px; border: 1px solid var(--border); background: var(--surface-3); }
+.idc-fieldrow.idc-photorow { grid-template-columns: minmax(180px, 35%) 1fr auto; }
+.idc-flabel { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+.idc-review { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small);
+  color: var(--text-muted); cursor: pointer; white-space: nowrap; user-select: none; }
+.idc-review .mark { font-weight: 700; }
+.idc-review.is-ok .mark { color: var(--success); }
+.idc-review.is-no .mark { color: var(--danger); }
+.idc-cand { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.idc-cand .kb-btn { flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.idc-cand .src { font-size: 10px; opacity: .7; text-transform: uppercase; }
+.idc-rawqr { font-family: var(--font-mono); font-size: 12px; word-break: break-all;
+  background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; }
+.idc-muted { color: var(--text-muted); font-size: var(--fs-small); }
 </style>
 </head>
 <body>
-<div id="app"><p class="kb-loading">Loading configuration…</p></div>
+<div id="app"><p class="kb-loading">Loading…</p></div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SEED: the config.yml written into a brand-new ledger folder (verbatim).
+     After that, the copy in the folder is authoritative and is what the
+     Configuration tab edits. Field spec follows FUND_LEDGER_BRIEF.md §Tabs.
+     ══════════════════════════════════════════════════════════════════════════ -->
+<script type="text/yaml" id="seed-config">
+# =============================================================================
+# Fund Ledger — ledger configuration
+# =============================================================================
+# This file lives inside the ledger folder and is edited in the app's
+# Configuration tab (or by hand). It defines the fund, the entry modes, and
+# every field on the four record forms.
+#
+# Field keys:
+#   fieldname : unique name (used as the {fieldname} token in Templates/*.md)
+#   label     : text shown on the form and in record files
+#   type      : text | textarea | date | number | drop-down | random-generator | reference
+#   required  : yes | no                       (default no)
+#   text      : max character length           (type text)
+#   textarea  : visible lines                  (type textarea)
+#   date      : past-only | future-only | YYYY-MM-DD---YYYY-MM-DD
+#   number_range   : N---N
+#   symbols        : none | before | after | currency   (currency = fund currency)
+#   symbols_print  : literal symbol to print before/after the number
+#   drop-down      : ["value, Label", …] | countries | months | <list name>
+#   dropdown_search: yes | no                  (searchable input instead of a select)
+#   reference      : beneficiary | donor | donation | disbursement
+#   reference_limit: all-records | same-id-only
+#   show_if        : fieldname=value           (field only shows for that value)
+#   from_id        : ID-template field id (or a list of ids, joined with spaces)
+#                    that pre-fills this field in ID Card Reader mode
+
+fund:
+  name: "Fund Ledger"
+  currency-code: "USD"
+  currency-symbol: "$"
+  currency-position: before      # before | after
+
+beneficiary:
+  mode: plaintext                # plaintext | idcardreader
+  id-template: unhcr-thailand-id-card
+  fields:
+    - { fieldname: name, label: "Name", type: text, required: yes }
+    - { fieldname: date-of-birth, label: "Date of birth", type: date, date: past-only, from_id: date-of-birth }
+    - { fieldname: sex, label: "Sex", type: drop-down, drop-down: sexes, from_id: sex }
+    - { fieldname: country-of-origin, label: "Country of origin", type: drop-down, drop-down: countries, dropdown_search: yes, from_id: country-of-origin }
+    - { fieldname: unhcr-case-no, label: "UNHCR case file no.", type: text, from_id: case-number }
+    - { fieldname: unhcr-individual-id, label: "UNHCR individual ID", type: text, from_id: individual-id-number }
+    - { fieldname: unhcr-case-status, label: "UNHCR case status", type: drop-down, drop-down: case-statuses }
+    - { fieldname: bank, label: "Bank", type: text }
+    - { fieldname: bank-account, label: "Bank account number", type: text }
+    - { fieldname: bank-account-holder, label: "Bank account holder", type: text }
+    - { fieldname: phone, label: "Phone number", type: text }
+    - { fieldname: email, label: "Email", type: text }
+
+donor:
+  mode: plaintext                # plaintext | idcardreader
+  id-template: passport-mrz
+  fields:
+    - { fieldname: name, label: "Name", type: text, required: yes, from_id: [given-names, surname] }
+    - { fieldname: date-of-birth, label: "Date of birth", type: date, date: past-only, from_id: dob }
+    - { fieldname: sex, label: "Sex", type: drop-down, drop-down: sexes, from_id: sex }
+    - { fieldname: country-of-origin, label: "Country of origin", type: drop-down, drop-down: countries, dropdown_search: yes, from_id: nationality }
+    - { fieldname: phone, label: "Phone number", type: text }
+    - { fieldname: email, label: "Email", type: text }
+
+donation:
+  folder-date-field: date-of-donation
+  prints:
+    - donation-receipt
+  fields:
+    - { fieldname: reference, label: "Reference number", type: random-generator }
+    - { fieldname: donor, label: "Donor", type: reference, reference: donor, reference_limit: all-records, required: yes }
+    - { fieldname: linked-donation, label: "Linked donation", type: reference, reference: donation, reference_limit: same-id-only }
+    - { fieldname: date-of-pledge, label: "Date of pledge", type: date }
+    - { fieldname: purpose, label: "Purpose of donation", type: text, required: yes }
+    - { fieldname: notes, label: "Notes", type: textarea, textarea: 4 }
+    - { fieldname: amount, label: "Amount", type: number, required: yes, symbols: currency }
+    - { fieldname: date-of-donation, label: "Date of donation", type: date, required: yes }
+    - { fieldname: channel, label: "Donation channel", type: drop-down, drop-down: channels, required: yes }
+    - { fieldname: bank, label: "Bank", type: text, show_if: channel=bank-transfer }
+    - { fieldname: bank-account, label: "Bank account number", type: text, show_if: channel=bank-transfer }
+    - { fieldname: bank-account-holder, label: "Bank account holder", type: text, show_if: channel=bank-transfer }
+    - { fieldname: cheque-name, label: "Name on cheque", type: text, show_if: channel=cheque }
+    - { fieldname: cheque-number, label: "Cheque number", type: text, show_if: channel=cheque }
+    - { fieldname: transfer-service, label: "Money transfer service", type: text, show_if: channel=money-transfer }
+    - { fieldname: tracking-number, label: "Tracking number", type: text, show_if: channel=money-transfer }
+
+disbursement:
+  folder-date-field: date-of-disbursement
+  prints:
+    - disbursement-acknowledgement
+    - disbursement-receipt
+  fields:
+    - { fieldname: reference, label: "Reference number", type: random-generator }
+    - { fieldname: beneficiary, label: "Beneficiary", type: reference, reference: beneficiary, reference_limit: all-records, required: yes }
+    - { fieldname: previous-grant, label: "Previous grant", type: reference, reference: disbursement, reference_limit: same-id-only }
+    - { fieldname: date-of-grant, label: "Date of grant", type: date }
+    - { fieldname: purpose, label: "Purpose of grant", type: text, required: yes }
+    - { fieldname: notes, label: "Notes", type: textarea, textarea: 4 }
+    - { fieldname: amount, label: "Amount", type: number, required: yes, symbols: currency }
+    - { fieldname: date-of-disbursement, label: "Date of disbursement", type: date, required: yes }
+    - { fieldname: channel, label: "Disbursement channel", type: drop-down, drop-down: channels, required: yes }
+    - { fieldname: bank, label: "Bank", type: text, show_if: channel=bank-transfer }
+    - { fieldname: bank-account, label: "Bank account number", type: text, show_if: channel=bank-transfer }
+    - { fieldname: bank-account-holder, label: "Bank account holder", type: text, show_if: channel=bank-transfer }
+    - { fieldname: cheque-name, label: "Name on cheque", type: text, show_if: channel=cheque }
+    - { fieldname: cheque-number, label: "Cheque number", type: text, show_if: channel=cheque }
+    - { fieldname: transfer-service, label: "Money transfer service", type: text, show_if: channel=money-transfer }
+    - { fieldname: tracking-number, label: "Tracking number", type: text, show_if: channel=money-transfer }
+
+drop-down-lists:
+  - name: channels
+    values: ["cash, Cash", "bank-transfer, Bank transfer", "cheque, Cheque", "money-transfer, Money transfer service"]
+  - name: sexes
+    values: ["F, Female", "M, Male", "X, Other / unspecified"]
+  - name: case-statuses
+    values: ["asylum-seeker, Asylum seeker", "refugee, Recognised refugee", "resettlement, Resettlement processing", "closed, Case closed"]
+</script>
+
+<!-- SEED: default markdown document templates, written into Templates/ on
+     first open (only if missing — operator edits are never overwritten).
+     {fieldname} tokens are substituted from the record; {signatures:1|2}
+     renders signature blocks. -->
+<script type="text/plain" id="seed-tpl-donation-receipt">
+# {fund-name}
+
+## Donation receipt — {reference}
+
+Date: **{date-of-donation}**
+
+Received with thanks from **{donor-name}** (donor {donor-id}) the amount of
+**{amount}**, given by {channel}.
+
+Purpose: {purpose}
+
+{notes}
+
+{signatures:1}
+</script>
+<script type="text/plain" id="seed-tpl-disbursement-acknowledgement">
+# {fund-name}
+
+## Disbursement acknowledgement — {reference}
+
+I, **{beneficiary-name}** ({beneficiary-id}), acknowledge receipt of
+**{amount}** from {fund-name} on **{date-of-disbursement}**, disbursed by
+{channel}.
+
+Purpose of grant: {purpose}
+
+{notes}
+
+{signatures:2}
+</script>
+<script type="text/plain" id="seed-tpl-disbursement-receipt">
+# {fund-name}
+
+## Disbursement receipt — {reference}
+
+Date of disbursement: **{date-of-disbursement}**
+
+Paid to **{beneficiary-name}** ({beneficiary-id}): **{amount}**, by {channel}.
+
+Purpose of grant: {purpose}
+
+Date of grant: {date-of-grant}
+
+{notes}
+
+{signatures:1}
+</script>
+
+<!-- EMBEDDED ID-CARD EXTRACTION TEMPLATES — copies of
+     kbenestad/idcardreader app/templates/*.yaml, inlined because templates
+     cannot be fetch()ed over file://. Sync by hand when they change there. -->
+<script type="text/yaml" id="idtpl-unhcr-thailand-id-card">
+name: UNHCR Thailand ID card
+slug: unhcr-thailand-id-card
+aspect: id-card
+expiry-field: { side: front, id: expiry-date }
+front:
+  fields:
+    - { id: cardholder-photo, label: Cardholder Photo, type: photo, region: { x: 8.2, 'y': 6.9, w: 28.5, h: 54.5 } }
+    - { id: card-qr, label: Card QR, type: photo, region: { x: 55.6, 'y': 79.2, w: 11.4, h: 16.1 } }
+    - { id: case-number, label: Case number, type: text, region: { x: 38.6, 'y': 10.9, w: 37, h: 8.6 } }
+    - { id: individual-id-number, label: Individual ID number, type: text, region: { x: 8.4, 'y': 64, w: 28.5, h: 11.4 } }
+    - { id: date-of-birth, label: Date of birth, type: text, region: { x: 38.6, 'y': 41.5, w: 35.6, h: 6.8 } }
+    - { id: sex, label: Sex, type: text, region: { x: 75.7, 'y': 41.8, w: 16.2, h: 6.9 } }
+    - { id: country-of-origin, label: Country of origin, type: text, region: { x: 38.7, 'y': 52.7, w: 49.7, h: 6.3 } }
+    - { id: issue-date, label: Issue date, type: date, region: { x: 71.3, 'y': 57.5, w: 22.3, h: 6.4 }, calendar: gregorian }
+    - { id: expiry-date, label: Expiry date, type: date, region: { x: 71.1, 'y': 62.8, w: 22.6, h: 5.8 }, calendar: gregorian }
+</script>
+<script type="text/yaml" id="idtpl-passport-mrz">
+name: "Passport (MRZ)"
+slug: passport-mrz
+aspect: passport
+expiry-field: { side: front, id: expiry }
+front:
+  fields:
+    - { id: photo, label: "Photo", type: photo, region: { x: 4.0, y: 10.0, w: 26.0, h: 55.0 } }
+    - { id: mrz, label: "Machine Readable Zone", type: mrz, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: doc-type, label: "Document Type", type: text, mrz-key: docType, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: issuing-country, label: "Issuing Country", type: text, mrz-key: issuingCountry, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: surname, label: "Surname", type: text, mrz-key: surname, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: given-names, label: "Given Names", type: text, mrz-key: givenNames, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: passport-number, label: "Passport Number", type: text, mrz-key: passportNumber, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: nationality, label: "Nationality", type: text, mrz-key: nationality, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: sex, label: "Sex", type: text, mrz-key: sex, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: dob, label: "Date of Birth", type: date, mrz-key: dob, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: expiry, label: "Expiry Date", type: date, mrz-key: expiry, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: optional-data, label: "Optional Data", type: text, mrz-key: optionalData, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+    - { id: mrz-check, label: "MRZ Check Digit", type: text, mrz-key: compositeValid, region: { x: 2.8, y: 86.0, w: 94.4, h: 12.0 } }
+</script>
 
 <script>
 (async function () {
 'use strict';
-/* This script is wrapped in an IIFE, so its top-level functions are NOT
- * globals — they cannot collide with app.js. Helpers from app.js ($, el,
- * makeSizeControl, kbAbout, lookupString, …) are visible in here. */
+/* Wrapped in an IIFE — globals from app.js ($, el, makeTabs, makeAccordion,
+ * kbModal, …) and capture.js (captureToImage, ocrField, …) are visible here. */
 
-let CFG;          // parsed config.yml
-let lang = 'en';  // active UI language
+let CFG;          // boot config (inline YAML above)
+let lang = 'en';
 
-// Footer version metadata (see CLAUDE.md → Versioning / Footer). Bump these
-// alongside VERSION.md on every push to main; `prUrl` should point at the PR
-// that shipped this version (fall back to the commit view if it landed on
-// main without one).
 const APP_VERSION = {
-  version: '0.2.0',
-  commit: 'd740d8c',
-  prUrl: 'https://github.com/kbenestad/appdevelopment/pull/2',
-  date: '13 July 2026',
+  version: '0.1.0',
+  commit: 'development',
+  prUrl: 'https://github.com/kbenestad/fundledger',
+  date: '14 July 2026',
 };
 
-// ── i18n ───────────────────────────────────────────────────────────────────
-// One string lookup, delegating to the shared lookupString(). Never hardcode
-// user-facing text — add a key to every language's `ui:` block and use S().
-function S(key, vars) {
-  return lookupString(CFG['ui-strings'], key, lang, CFG['default-code'], vars);
-}
+const S = (key, vars) => lookupString(CFG['ui-strings'], key, lang, CFG['default-code'], vars);
+const esc = s => kbEsc(s == null ? '' : String(s));
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
-// Guard against a successful fetch that returns the WRONG bytes. On a static
-// host a missing config.yml (or an SPA fallback / stale HTML cache) is served
-// as an HTML page with a 200, so jsyaml.load() returns a plain string instead
-// of the config object. Without this check CFG.localisation is undefined,
-// normaliseConfig() early-returns, and the app renders its chrome with every
-// label showing as a raw key and an empty language dropdown — no error at all.
-// Fail loudly and actionably instead. (Kept in the inline boot, NOT app.js,
-// which must stay byte-identical across apps.)
+/* ── Boot config (inline — file:// cannot fetch) ─────────────────────────── */
+function readInlineYaml(id) {
+  const node = document.getElementById(id);
+  return node ? jsyaml.load(node.textContent) : null;
+}
+function readInlineText(id) {
+  const node = document.getElementById(id);
+  return node ? node.textContent.replace(/^\n/, '') : '';
+}
 function assertValidConfig(cfg) {
   if (!cfg || typeof cfg !== 'object' || !cfg.localisation) {
-    throw new Error(
-      'config.yml loaded but did not parse to a valid configuration. The server ' +
-      'most likely returned an HTML page (a 404 or single-page-app fallback, or a ' +
-      'stale cached page) instead of the YAML file. Confirm config.yml is deployed ' +
-      'next to index.html and served as plain text (not rewritten to index.html).'
-    );
+    throw new Error('The inline boot-config block did not parse to a valid configuration. '
+      + 'Check the YAML in <script type="text/yaml" id="boot-config"> near the top of index.html.');
   }
 }
-
-// Flatten localisation[lang].ui → ui-strings[key][lang] using the shared core.
-// Add your own data-specific maps (currencies, codes, …) after this.
 function normaliseConfig() {
   const loc = CFG && CFG.localisation;
   if (!loc) return;
@@ -124,180 +620,1642 @@ function normaliseConfig() {
   CFG.languages = CFG.languages || languages;
   CFG['ui-strings'] = table;
 }
-
-// Copy the active language's About block onto flat fields the modal reads.
 function applyLang(lc) {
   lang = lc;
   const loc = CFG.localisation || {};
   const a = (loc[lc] && loc[lc].about) || (loc[CFG['default-code']] && loc[CFG['default-code']].about) || {};
-  CFG['about-title']   = a.title   || 'About';
+  CFG['about-title'] = a.title || 'About';
   CFG['about-content'] = a.content || '';
-  CFG['about-button']  = a.button  || 'Close';
+  CFG['about-button'] = a.button || 'Close';
+}
+const showAboutModal = () => kbAbout({ title: CFG['about-title'], contentMD: CFG['about-content'], closeLabel: CFG['about-button'] });
+
+/* Apply a `theme:` that is either an inline mdcms theme OBJECT (fetch-free —
+ * the file:// path) or a path string (fetched; only works when HTTP-hosted).
+ * See FUND_LEDGER_PLAN.md §3.1.1. */
+async function applyThemeConfig(themeVal) {
+  if (!themeVal) { kbApplyThemeToDoc(null, document); return; }
+  if (typeof themeVal === 'object') { kbApplyThemeToDoc(themeVal, document); return; }
+  await applyMdcmsTheme({ theme: themeVal }, '');
 }
 
-function showAboutModal() {
-  return kbAbout({ title: CFG['about-title'], contentMD: CFG['about-content'], closeLabel: CFG['about-button'] });
-}
+/* ── State ───────────────────────────────────────────────────────────────── */
+const STATE = {
+  tab: 0,
+  ledger: null,        // { handle, name, config, index }
+  pendingHandle: null, // stored handle awaiting a permission click
+  lastSaved: { donation: null, disbursement: null },  // per-kind post-save panel
+  idFlow: { beneficiary: null, donor: null },         // ID-capture flow state per kind
+  personDraft: { beneficiary: null, donor: null },    // { prefill, photo, images, note }
+};
 
-// ── Render ─────────────────────────────────────────────────────────────────
-function render() {
-  const app = document.getElementById('app');
-  app.innerHTML = '';
-  const wrap = el('div', { className: 'kb-wrap' });
+const SUBDIRS = ['Donors', 'Beneficiaries', 'Donations', 'Disbursements', 'Templates', 'Changelog'];
+const SEED_TEMPLATES = ['donation-receipt', 'disbursement-acknowledgement', 'disbursement-receipt'];
 
-  wrap.appendChild(buildToolbar());
-  wrap.appendChild(buildHeader());
-  wrap.appendChild(buildExampleCard());   // ← replace this with your form
-  wrap.appendChild(buildTabsDemo());      // ← reference only; delete or keep as needed
-
-  // Action row
-  const actions = el('div', { className: 'kb-actions' });
-  actions.append(
-    el('button', { className: 'kb-btn kb-btn--ghost' }, S('save')),
-    el('button', { className: 'kb-btn kb-btn--primary', onClick: onDownload }, S('download'))
-  );
-  wrap.appendChild(actions);
-
-  wrap.appendChild(buildFooter());
-
-  app.appendChild(wrap);
-  updateThemeIcon();   // keep theme icons in sync after a (re)render
-}
-
-// Toolbar: language select · spacer · A−/A+ size · theme · about
-function buildToolbar() {
-  const toolbar = el('div', { className: 'kb-toolbar' });
-
-  const langSel = el('select', { className: 'kb-select', 'aria-label': 'Language' });
-  (CFG.languages || []).forEach(l => {
-    const o = el('option', { value: l.code }, l.name || l.code);
-    if (l.code === lang) o.selected = true;
-    langSel.appendChild(o);
+/* ── IndexedDB (persist the directory handle across sessions) ────────────── */
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('fundledger', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
-  langSel.addEventListener('change', () => {
-    applyLang(langSel.value);
-    localStorage.setItem('basis-lang', langSel.value);   // app-specific key
+}
+async function idbSet(key, val) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(val, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('kv', 'readonly');
+    const rq = tx.objectStore('kv').get(key);
+    rq.onsuccess = () => { db.close(); resolve(rq.result); };
+    rq.onerror = () => { db.close(); reject(rq.error); };
+  });
+}
+async function idbDel(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+/* ── File System Access helpers ──────────────────────────────────────────── */
+async function getDir(parent, name, create) {
+  return parent.getDirectoryHandle(name, { create: !!create });
+}
+async function writeFileText(dir, name, text) {
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();          // truncates
+  await w.write(text);
+  await w.close();
+}
+async function readFileTextOrNull(dir, name) {
+  try {
+    const fh = await dir.getFileHandle(name);
+    return await (await fh.getFile()).text();
+  } catch (e) { return null; }
+}
+async function appendFileLine(dir, name, line) {
+  const fh = await dir.getFileHandle(name, { create: true });
+  const file = await fh.getFile();
+  const w = await fh.createWritable({ keepExistingData: true });
+  await w.write({ type: 'write', position: file.size, data: line });
+  await w.close();
+}
+
+/* ── Ledger: open / reconnect / seed ─────────────────────────────────────── */
+async function openLedgerFolder() {
+  let handle;
+  try {
+    handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;   // user cancelled the picker
+    await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+    return;
+  }
+  await connectLedger(handle);
+}
+
+async function connectLedger(handle) {
+  try {
+    for (const d of SUBDIRS) await getDir(handle, d, true);
+
+    // config.yml — seed on first open, then the folder copy is authoritative.
+    let cfgText = await readFileTextOrNull(handle, 'config.yml');
+    let seeded = false;
+    if (cfgText == null) { cfgText = readInlineText('seed-config'); await writeFileText(handle, 'config.yml', cfgText); seeded = true; }
+    let lcfg;
+    try { lcfg = jsyaml.load(cfgText); } catch (e) {
+      await kbAlert({ title: 'Error', message: S('config-parse-error', { error: e.message }) });
+      return;
+    }
+    if (!lcfg || typeof lcfg !== 'object') {
+      await kbAlert({ title: 'Error', message: S('config-parse-error', { error: 'not a YAML mapping' }) });
+      return;
+    }
+
+    // Default document templates — only ever created, never overwritten.
+    const tplDir = await getDir(handle, 'Templates', true);
+    for (const name of SEED_TEMPLATES) {
+      if (await readFileTextOrNull(tplDir, name + '.md') == null) {
+        await writeFileText(tplDir, name + '.md', readInlineText('seed-tpl-' + name));
+      }
+    }
+
+    // Ledger.html — read the embedded index, or start fresh.
+    let index = null;
+    const ledgerText = await readFileTextOrNull(handle, 'Ledger.html');
+    if (ledgerText != null) index = extractEmbeddedJson(ledgerText, 'ledger-index');
+    if (!index) {
+      index = { version: 1, counters: { beneficiary: 0, donor: 0 }, beneficiaries: [], donors: [], donations: [], disbursements: [] };
+    }
+
+    STATE.ledger = { handle, name: handle.name, config: lcfg, index };
+    STATE.pendingHandle = null;
+    await idbSet('root', handle);
+    if (seeded) {
+      await appendChangelog('ledger-created', '-', 'Ledger folder initialised');
+      await writeLedgerIndex();
+    } else if (ledgerText == null) {
+      await writeLedgerIndex();
+    }
+    await applyThemeConfig(lcfg.theme || CFG.theme);
     render();
+  } catch (e) {
+    console.error(e);
+    await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+  }
+}
+
+async function tryReconnect() {
+  let handle = null;
+  try { handle = await idbGet('root'); } catch (e) { /* no stored handle */ }
+  if (!handle) return;
+  try {
+    const p = await handle.queryPermission({ mode: 'readwrite' });
+    if (p === 'granted') { await connectLedger(handle); return; }
+  } catch (e) { /* fall through to manual reconnect */ }
+  STATE.pendingHandle = handle;   // needs a user-gesture requestPermission()
+}
+
+async function reconnectClick() {
+  const handle = STATE.pendingHandle;
+  if (!handle) return;
+  try {
+    const p = await handle.requestPermission({ mode: 'readwrite' });
+    if (p === 'granted') { await connectLedger(handle); return; }
+  } catch (e) {
+    await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+  }
+}
+
+async function closeLedger() {
+  const ok = await kbConfirm({ title: S('close-ledger-title'), message: S('close-ledger-message'), confirmLabel: S('btn-close-ledger'), cancelLabel: S('cancel') });
+  if (!ok) return;
+  await idbDel('root');
+  STATE.ledger = null; STATE.pendingHandle = null;
+  STATE.lastSaved = { donation: null, disbursement: null };
+  STATE.idFlow = { beneficiary: null, donor: null };
+  STATE.personDraft = { beneficiary: null, donor: null };
+  render();
+}
+
+/* ── Changelog (append-only versioning mechanism) ────────────────────────── */
+async function appendChangelog(action, id, description) {
+  const dir = await getDir(STATE.ledger.handle, 'Changelog', true);
+  const entry = { ts: new Date().toISOString(), action, id, description };
+  await appendFileLine(dir, 'changelog.jsonl', JSON.stringify(entry) + '\n');
+}
+
+/* ── Embedded-JSON helpers (index + record files carry their data) ───────── */
+function extractEmbeddedJson(htmlText, id) {
+  const m = htmlText.match(new RegExp('<script type="application/json" id="' + id + '">([\\s\\S]*?)<\\/script>'));
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch (e) { return null; }
+}
+function embedJson(id, data) {
+  return '<script type="application/json" id="' + id + '">'
+    + JSON.stringify(data).replace(/</g, '\\u003c') + '<\/script>';
+}
+
+/* ── Money formatting (single fund currency — confirmed decision) ────────── */
+function fundCfg() { return (STATE.ledger && STATE.ledger.config.fund) || {}; }
+function fmtMoney(n) {
+  const f = fundCfg();
+  const num = formatAmount(parseAmount(n));
+  const sym = f['currency-symbol'] != null ? String(f['currency-symbol']) : '';
+  if (!sym) return num + (f['currency-code'] ? ' ' + f['currency-code'] : '');
+  return f['currency-position'] === 'after' ? num + ' ' + sym : sym + num;
+}
+
+/* ── Drop-down machinery ─────────────────────────────────────────────────── */
+function parsePair(s) {
+  const str = String(s);
+  const i = str.indexOf(',');
+  if (i === -1) return { value: str.trim(), label: str.trim() };
+  return { value: str.slice(0, i).trim(), label: str.slice(i + 1).trim() };
+}
+function ddOptions(field) {
+  const src = field['drop-down'];
+  if (Array.isArray(src)) return src.map(parsePair);
+  if (src === 'countries') return KB_COUNTRIES.slice(1).map(([c, n]) => ({ value: c, label: n }));
+  if (src === 'months') return MONTHS_FULL.map((m, i) => ({ value: String(i + 1), label: m }));
+  const lists = (STATE.ledger && STATE.ledger.config['drop-down-lists']) || [];
+  const list = lists.find(l => l && l.name === src);
+  return list && Array.isArray(list.values) ? list.values.map(parsePair) : [];
+}
+function ddLabelFor(field, value) {
+  if (value == null || value === '') return '';
+  const opt = ddOptions(field).find(o => o.value === String(value));
+  return opt ? opt.label : String(value);
+}
+
+/* ── Reference numbers & IDs ─────────────────────────────────────────────── */
+function genReference() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const taken = new Set([...(idx().donations), ...(idx().disbursements)].map(r => r.reference));
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const buf = new Uint32Array(6);
+    crypto.getRandomValues(buf);
+    const ref = [...buf].map(v => chars[v % chars.length]).join('');
+    if (!taken.has(ref)) return ref;
+  }
+  return uid().slice(-6).toUpperCase();
+}
+function idx() { return STATE.ledger.index; }
+function nextPersonId(kind) {
+  const n = (idx().counters[kind] || 0) + 1;
+  return (kind === 'beneficiary' ? 'B-' : 'D-') + String(n).padStart(4, '0');
+}
+function fileSafeName(s) {
+  // Keep letters/digits/spaces (the brief's "B-NNNN_Lastname Firstname.html"
+  // format has a space); strip filesystem-hostile characters.
+  return String(s || '').replace(/[\\/:*?"<>|#%&{}$!'@+`=]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CONFIG-DRIVEN FORM RENDERER (all record forms are built from config fields)
+   ══════════════════════════════════════════════════════════════════════════ */
+function buildConfigForm(fields, opts = {}) {
+  const rows = [];   // { field, wrap, getValue, setValue, setError, visible }
+  const grid = el('div', { className: 'kb-grid cols-2' });
+  const changeHooks = [];
+
+  function fieldRow(field) {
+    const wrap = el('div', { className: 'kb-field' });
+    wrap.appendChild(el('span', { className: 'kb-label' }, field.label || field.fieldname));
+    let input, getValue, setValue;
+    const type = String(field.type || 'text').replace(/\s+/g, '-');
+
+    if (type === 'textarea') {
+      input = el('textarea', { className: 'kb-textarea', rows: parseInt(field.textarea, 10) || 3 });
+      getValue = () => input.value.trim();
+      setValue = v => { input.value = v == null ? '' : String(v); };
+      wrap.style.gridColumn = '1 / -1';
+      wrap.appendChild(input);
+    } else if (type === 'date') {
+      input = el('input', { className: 'kb-input', type: 'date' });
+      const c = String(field.date || '');
+      if (c === 'past-only') input.max = todayIso();
+      else if (c === 'future-only') input.min = todayIso();
+      else { const m = c.match(/^(\d{4}-\d{2}-\d{2})---(\d{4}-\d{2}-\d{2})$/); if (m) { input.min = m[1]; input.max = m[2]; } }
+      getValue = () => input.value;
+      setValue = v => { input.value = normaliseDate(v) || v || ''; };
+      wrap.appendChild(input);
+    } else if (type === 'number') {
+      const row = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } });
+      input = el('input', { className: 'kb-input num', inputmode: 'decimal' });
+      row.appendChild(input);
+      let sym = '';
+      if (field.symbols === 'currency') sym = fundCfg()['currency-symbol'] || fundCfg()['currency-code'] || '';
+      else if (field.symbols === 'before' || field.symbols === 'after') sym = field.symbols_print || '';
+      if (sym) {
+        const tag = el('span', { className: 'fl-muted' }, sym);
+        if (field.symbols === 'before' || field.symbols === 'currency') row.insertBefore(tag, input); else row.appendChild(tag);
+      }
+      getValue = () => input.value.trim();
+      setValue = v => { input.value = v == null ? '' : String(v); };
+      wrap.appendChild(row);
+    } else if (type === 'drop-down') {
+      const options = ddOptions(field);
+      if (kbTruthy(field.dropdown_search)) {
+        const listId = uid();
+        input = el('input', { className: 'kb-input', list: listId, placeholder: S('select-placeholder') });
+        const dl = el('datalist', { id: listId });
+        options.forEach(o => dl.appendChild(el('option', { value: o.label })));
+        wrap.append(input, dl);
+        getValue = () => {
+          const t = input.value.trim();
+          if (!t) return '';
+          const hit = options.find(o => o.label.toLowerCase() === t.toLowerCase() || o.value.toLowerCase() === t.toLowerCase());
+          return hit ? hit.value : t;
+        };
+        setValue = v => {
+          const s = v == null ? '' : String(v);
+          const hit = options.find(o => o.value.toLowerCase() === s.toLowerCase() || o.label.toLowerCase() === s.toLowerCase());
+          input.value = hit ? hit.label : s;
+        };
+      } else {
+        input = el('select', { className: 'kb-select' });
+        input.appendChild(el('option', { value: '' }, S('select-placeholder')));
+        options.forEach(o => input.appendChild(el('option', { value: o.value }, o.label)));
+        wrap.appendChild(input);
+        getValue = () => input.value;
+        setValue = v => {
+          const s = v == null ? '' : String(v);
+          const hit = options.find(o => o.value.toLowerCase() === s.toLowerCase() || o.label.toLowerCase() === s.toLowerCase());
+          input.value = hit ? hit.value : '';
+        };
+      }
+      input.addEventListener('change', () => changeHooks.forEach(h => h(field.fieldname)));
+      input.addEventListener('input', () => changeHooks.forEach(h => h(field.fieldname)));
+    } else if (type === 'random-generator') {
+      const row = el('div', { style: { display: 'flex', gap: '8px' } });
+      input = el('input', { className: 'kb-input fl-mono', readOnly: true, value: genReference() });
+      const btn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost kb-btn--sm', onClick: () => { input.value = genReference(); } }, S('regenerate'));
+      row.append(input, btn);
+      getValue = () => input.value;
+      setValue = v => { if (v) input.value = String(v); };
+      wrap.appendChild(row);
+    } else if (type === 'reference') {
+      input = el('select', { className: 'kb-select' });
+      wrap.appendChild(input);
+      getValue = () => input.value;
+      setValue = v => { input.value = v == null ? '' : String(v); };
+      input.addEventListener('change', () => changeHooks.forEach(h => h(field.fieldname)));
+    } else { // text (default)
+      input = el('input', { className: 'kb-input' });
+      const max = parseInt(field.text, 10);
+      if (max > 0) input.maxLength = max;
+      getValue = () => input.value.trim();
+      setValue = v => { input.value = v == null ? '' : String(v); };
+      wrap.appendChild(input);
+    }
+
+    const err = el('div', { className: 'fl-muted', style: { color: 'var(--danger)', display: 'none' } });
+    wrap.appendChild(err);
+    const setError = msg => {
+      err.textContent = msg || '';
+      err.style.display = msg ? '' : 'none';
+      input.classList.toggle('is-error', !!msg);
+    };
+    return { field, wrap, input, getValue, setValue, setError, visible: true };
+  }
+
+  (fields || []).forEach(f => { if (f && f.fieldname) { const r = fieldRow(f); rows.push(r); grid.appendChild(r.wrap); } });
+
+  // Populate reference selects + wire same-id-only filtering and show_if.
+  function personKindOf(field) { return field.reference === 'beneficiary' || field.reference === 'donor' ? field.reference : null; }
+  const personRow = rows.find(r => r.field.type === 'reference' && personKindOf(r.field));
+
+  function refOptions(field) {
+    const target = field.reference;
+    let items = [];
+    if (target === 'beneficiary') items = idx().beneficiaries.map(p => ({ value: p.id, label: p.id + ' — ' + p.name }));
+    else if (target === 'donor') items = idx().donors.map(p => ({ value: p.id, label: p.id + ' — ' + p.name }));
+    else if (target === 'donation' || target === 'disbursement') {
+      let recs = target === 'donation' ? idx().donations : idx().disbursements;
+      if (field.reference_limit === 'same-id-only' && personRow) {
+        const pid = personRow.getValue();
+        recs = pid ? recs.filter(r => r.personId === pid) : [];
+      }
+      items = recs.map(r => ({ value: r.reference, label: r.reference + ' — ' + (r.date || '') + ' · ' + fmtMoney(r.amount) }));
+    }
+    return items;
+  }
+  function refreshRefSelects() {
+    rows.filter(r => r.field.type === 'reference').forEach(r => {
+      const cur = r.input.value;
+      r.input.innerHTML = '';
+      r.input.appendChild(el('option', { value: '' }, S('select-placeholder')));
+      refOptions(r.field).forEach(o => r.input.appendChild(el('option', { value: o.value }, o.label)));
+      r.input.value = cur;
+    });
+  }
+  function applyShowIf() {
+    rows.forEach(r => {
+      const cond = r.field.show_if;
+      if (!cond) return;
+      const m = String(cond).match(/^\s*([^=]+?)\s*=\s*(.+?)\s*$/);
+      if (!m) return;
+      const controller = rows.find(x => x.field.fieldname === m[1]);
+      const val = controller ? controller.getValue() : '';
+      r.visible = String(val) === m[2];
+      r.wrap.style.display = r.visible ? '' : 'none';
+      if (!r.visible) r.setError(null);
+    });
+  }
+  changeHooks.push(() => { refreshRefSelects(); applyShowIf(); });
+  refreshRefSelects();
+  applyShowIf();
+
+  function validate() {
+    let ok = true;
+    rows.forEach(r => {
+      if (!r.visible) return;
+      r.setError(null);
+      const v = r.getValue();
+      const type = String(r.field.type || 'text').replace(/\s+/g, '-');
+      if (kbTruthy(r.field.required) && !v) { r.setError(S('required-error')); ok = false; return; }
+      if (!v) return;
+      if (type === 'number') {
+        const n = parseFloat(String(v).replace(/,/g, ''));
+        if (isNaN(n)) { r.setError(S('invalid-number')); ok = false; return; }
+        const m = String(r.field.number_range || '').match(/^(-?[\d.]+)---(-?[\d.]+)$/);
+        if (m && (n < parseFloat(m[1]) || n > parseFloat(m[2]))) { r.setError(S('number-range-error', { min: m[1], max: m[2] })); ok = false; }
+      }
+      if (type === 'date') {
+        if (r.input.min && v < r.input.min) { r.setError(S('date-early-error')); ok = false; }
+        if (r.input.max && v > r.input.max) { r.setError(S('date-late-error')); ok = false; }
+      }
+    });
+    return ok;
+  }
+  function getValues() {
+    const out = {};
+    rows.forEach(r => { if (r.visible) out[r.field.fieldname] = r.getValue(); });
+    return out;
+  }
+  function setValues(map) {
+    rows.forEach(r => { if (map && map[r.field.fieldname] != null) r.setValue(map[r.field.fieldname]); });
+    refreshRefSelects(); applyShowIf();
+  }
+  function displayValue(fieldname) {
+    const r = rows.find(x => x.field.fieldname === fieldname);
+    if (!r) return '';
+    const v = r.getValue();
+    return r.field.type === 'drop-down' ? ddLabelFor(r.field, v) : v;
+  }
+  return { root: grid, rows, validate, getValues, setValues, displayValue };
+}
+
+/* Resolve a stored value map to display form (drop-down labels, money). */
+function displayMap(fields, values) {
+  const out = {};
+  (fields || []).forEach(f => {
+    if (!f || !f.fieldname) return;
+    let v = values[f.fieldname];
+    if (v == null) return;
+    if (f.type === 'drop-down') v = ddLabelFor(f, v);
+    if (f.type === 'number' && f.symbols === 'currency') v = fmtMoney(v);
+    else if (f.type === 'number' && (f.symbols === 'before' || f.symbols === 'after') && f.symbols_print) {
+      v = f.symbols === 'before' ? f.symbols_print + formatAmount(parseAmount(v)) : formatAmount(parseAmount(v)) + ' ' + f.symbols_print;
+    }
+    out[f.fieldname] = v;
+  });
+  return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GENERATED FILES: Ledger.html, record pages, printable documents
+   ══════════════════════════════════════════════════════════════════════════ */
+const REC_CSS = `
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+    margin:0; padding:28px; color:#14181e; background:#f4f6fa; line-height:1.5; }
+  .doc { max-width:780px; margin:0 auto; background:#fff; border:1px solid #e3e7ee; border-radius:10px;
+    box-shadow:0 4px 18px rgba(20,24,30,.06); padding:28px 30px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  h2 { font-size:15px; margin:20px 0 8px; }
+  .sub { color:#5f6975; font-size:13px; margin-bottom:16px; }
+  .top { display:flex; gap:20px; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+  .topphoto img { max-width:150px; max-height:200px; border-radius:8px; border:1px solid #e3e7ee; }
+  .row { display:grid; grid-template-columns:220px 1fr; gap:14px; padding:9px 0; border-top:1px solid #eef1f5; }
+  .row:first-of-type { border-top:0; }
+  .lab { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#5f6975; padding-top:3px; }
+  .valwrap { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0; }
+  .val { font-size:15px; word-break:break-word; white-space:pre-wrap; }
+  .empty { color:#9aa3af; font-style:italic; }
+  .copy { flex:0 0 auto; cursor:pointer; border:1px solid #d3d9e2; background:#f4f7fb; color:#3a434f;
+    border-radius:6px; padding:4px 10px; font-size:12px; font-weight:600; }
+  .copy:hover { border-color:#2f6fed; color:#2f6fed; }
+  .copy.done { background:#2f6fed; color:#fff; border-color:#2f6fed; }
+  .images { margin-top:24px; padding-top:16px; border-top:1px solid #eef1f5; }
+  .images h2, .docs h2, .idxsec h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:#5f6975; margin:0 0 10px; }
+  .thumbs { display:flex; gap:14px; flex-wrap:wrap; }
+  .thumb { margin:0; text-align:center; }
+  .thumb img { max-width:260px; max-height:180px; border-radius:6px; border:1px solid #e3e7ee; display:block; }
+  .thumb .cap { font-size:11px; color:#5f6975; margin-top:4px; }
+  .docs { margin-top:24px; padding-top:16px; border-top:1px solid #eef1f5; }
+  .docs li { margin:4px 0; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#5f6975; padding:6px 8px; border-bottom:2px solid #e3e7ee; }
+  td { padding:7px 8px; border-bottom:1px solid #eef1f5; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .stats { display:flex; gap:14px; flex-wrap:wrap; margin:14px 0 8px; }
+  .stat { flex:1 1 160px; border:1px solid #e3e7ee; border-radius:8px; padding:12px 14px; }
+  .stat .lab { padding:0; }
+  .stat .num { font-size:22px; font-weight:700; margin-top:2px; }
+  .stat.neg .num { color:#d64545; }
+  .idxsec { margin-top:22px; }
+  a { color:#2f6fed; }
+  .foot { margin-top:22px; padding-top:14px; border-top:1px solid #eef1f5; font-size:11px; color:#9aa3af; }
+  @media print { body { background:#fff; padding:0; } .doc { box-shadow:none; border:0; } .copy { display:none; } }
+`;
+
+function recordStrings() {
+  return { copy: S('rec-copy'), copied: S('rec-copied'), empty: S('field-empty') };
+}
+const REC_SCRIPT = `
+(function(){
+  var T = document.getElementById('rec-strings') ? JSON.parse(document.getElementById('rec-strings').textContent) : { copy:'Copy', copied:'Copied!' };
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var el = document.getElementById(btn.getAttribute('data-copy'));
+      var text = el ? el.innerText : '';
+      var done = function(){ btn.textContent = T.copied; btn.classList.add('done');
+        setTimeout(function(){ btn.textContent = T.copy; btn.classList.remove('done'); }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function(){});
+    });
+  });
+})();
+`;
+
+function recordPageHtml({ title, subtitle, fieldRows, photo, images, documents, jsonId, jsonData }) {
+  const rows = fieldRows.map((f, i) => `
+      <div class="row">
+        <div class="lab">${esc(f.label)}</div>
+        <div class="valwrap">
+          <span class="val" id="v${i}">${f.value ? esc(f.value) : '<span class="empty">' + esc(S('field-empty')) + '</span>'}</span>
+          ${f.value ? `<button class="copy" data-copy="v${i}">${esc(S('rec-copy'))}</button>` : ''}
+        </div>
+      </div>`).join('');
+  const photoBlock = photo ? `<div class="topphoto"><img src="${photo}" alt=""></div>` : '';
+  const imagesBlock = (images && images.length) ? `
+    <div class="images"><h2>${esc(S('rec-images'))}</h2><div class="thumbs">
+      ${images.map(im => `<figure class="thumb"><img src="${im.src}" alt="${esc(im.label)}"><figcaption class="cap">${esc(im.label)}</figcaption></figure>`).join('')}
+    </div></div>` : '';
+  const docsBlock = (documents && documents.length) ? `
+    <div class="docs"><h2>${esc(S('rec-documents'))}</h2><ul>
+      ${documents.map(d => `<li><a href="${esc(d)}">${esc(d)}</a></li>`).join('')}
+    </ul></div>` : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>${REC_CSS}</style>
+</head>
+<body>
+<div class="doc">
+  <div class="top">
+    <div><h1>${esc(title)}</h1><div class="sub">${esc(subtitle)}</div></div>
+    ${photoBlock}
+  </div>
+  <div class="fields">${rows}</div>
+  ${imagesBlock}
+  ${docsBlock}
+  <div class="foot">${esc(S('rec-generated-by'))}</div>
+</div>
+${embedJson('rec-strings', recordStrings())}
+${embedJson(jsonId, jsonData)}
+<script>${REC_SCRIPT}<\/script>
+</body>
+</html>`;
+}
+
+/* Ledger.html — metadata index (embedded JSON) + human dashboard. */
+function totalsOf(index) {
+  const sum = arr => arr.reduce((a, r) => a + (parseAmount(r.amount) || 0), 0);
+  const donations = sum(index.donations), disbursements = sum(index.disbursements);
+  return { donations, disbursements, balance: donations - disbursements };
+}
+function buildLedgerHtml() {
+  const index = idx();
+  const f = fundCfg();
+  const t = totalsOf(index);
+  const personTable = (list) => list.length ? `<table><tr><th>${esc(S('col-id'))}</th><th>${esc(S('col-name'))}</th><th>${esc(S('col-created'))}</th></tr>
+    ${list.map(p => `<tr><td><a href="${esc(p.file)}">${esc(p.id)}</a></td><td>${esc(p.name)}</td><td>${esc(p.created)}</td></tr>`).join('')}</table>`
+    : `<p class="sub">${esc(S('none-yet'))}</p>`;
+  const moneyTable = (list) => list.length ? `<table><tr><th>${esc(S('col-reference'))}</th><th>${esc(S('col-date'))}</th><th>${esc(S('col-person'))}</th><th style="text-align:right">${esc(S('col-amount'))}</th></tr>
+    ${list.map(r => `<tr><td><a href="${esc(r.folder)}/record.html">${esc(r.reference)}</a></td><td>${esc(r.date)}</td><td>${esc(r.personId)} — ${esc(r.personName)}</td><td class="num">${esc(fmtMoney(r.amount))}</td></tr>`).join('')}</table>`
+    : `<p class="sub">${esc(S('none-yet'))}</p>`;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(f.name || 'Fund Ledger')} — ${esc(S('ledger-title'))}</title>
+<style>${REC_CSS}</style>
+</head>
+<body>
+<div class="doc">
+  <h1>${esc(f.name || 'Fund Ledger')}</h1>
+  <div class="sub">${esc(S('ledger-title'))} · ${esc(S('rec-generated-on'))} ${esc(new Date().toISOString().slice(0, 16).replace('T', ' '))}</div>
+  <div class="stats">
+    <div class="stat"><div class="lab">${esc(S('total-donations'))}</div><div class="num">${esc(fmtMoney(t.donations))}</div></div>
+    <div class="stat"><div class="lab">${esc(S('total-disbursements'))}</div><div class="num">${esc(fmtMoney(t.disbursements))}</div></div>
+    <div class="stat${t.balance < 0 ? ' neg' : ''}"><div class="lab">${esc(S('balance'))}</div><div class="num">${esc(fmtMoney(t.balance))}</div></div>
+  </div>
+  <div class="idxsec"><h2>${esc(S('count-donations'))} (${index.donations.length})</h2>${moneyTable(index.donations.slice().reverse())}</div>
+  <div class="idxsec"><h2>${esc(S('count-disbursements'))} (${index.disbursements.length})</h2>${moneyTable(index.disbursements.slice().reverse())}</div>
+  <div class="idxsec"><h2>${esc(S('count-beneficiaries'))} (${index.beneficiaries.length})</h2>${personTable(index.beneficiaries)}</div>
+  <div class="idxsec"><h2>${esc(S('count-donors'))} (${index.donors.length})</h2>${personTable(index.donors)}</div>
+  <div class="foot">${esc(S('ledger-note'))}</div>
+</div>
+${embedJson('ledger-index', index)}
+</body>
+</html>`;
+}
+async function writeLedgerIndex() {
+  await writeFileText(STATE.ledger.handle, 'Ledger.html', buildLedgerHtml());
+}
+
+/* ── Printable documents from Templates/*.md ─────────────────────────────── */
+function fillTemplate(tplText, tokens) {
+  return tplText.replace(/\{([a-z0-9_-]+)\}/gi, (m, key) =>
+    tokens[key] != null ? String(tokens[key]) : (/^signatures?:?/i.test(key) ? m : ''));
+}
+function signatureBlockHtml(n) {
+  const one = `<div style="flex:1 1 0; min-width:200px;">
+    <div style="border-top:1.5px solid #14181e; margin-top:64px;"></div>
+    <div style="font-size:12px; color:#5f6975; display:flex; justify-content:space-between; margin-top:4px;">
+      <span>${esc(S('sig-signature'))}</span><span>${esc(S('sig-date'))}</span>
+    </div></div>`;
+  return `<div style="display:flex; gap:40px; margin-top:24px;">${n === 2 ? one + one : one}</div>`;
+}
+function documentHtml(md, title) {
+  let html = markdown(md);
+  html = html.replace(/(?:<p>)?\{signatures:([12])\}(?:<\/p>)?/g, (m, n) => signatureBlockHtml(parseInt(n, 10)));
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+    margin:0; padding:34px; color:#14181e; background:#fff; line-height:1.6; }
+  .sheet { max-width:720px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  h2 { font-size:16px; margin:18px 0 8px; }
+  h3 { font-size:14px; margin:14px 0 6px; }
+  p { margin:8px 0; }
+  @media print { body { padding:0; } }
+</style>
+</head>
+<body><div class="sheet">${html}
+<div style="margin-top:28px; padding-top:10px; border-top:1px solid #eef1f5; font-size:11px; color:#9aa3af;">${esc(S('rec-generated-on'))} ${esc(todayIso())} · ${esc(S('rec-generated-by'))}</div>
+</div></body>
+</html>`;
+}
+function printHtml(html) {
+  const f = el('iframe', { style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
+  document.body.appendChild(f);
+  f.onload = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.warn(e); } setTimeout(() => f.remove(), 120000); };
+  f.srcdoc = html;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RECORD CREATION (write order: record files → changelog → Ledger.html)
+   ══════════════════════════════════════════════════════════════════════════ */
+async function savePerson(kind, values, fields, extras) {
+  const id = nextPersonId(kind);
+  const name = fileSafeName(values.name || id);
+  const fileName = id + '_' + name + '.html';
+  const dirName = kind === 'beneficiary' ? 'Beneficiaries' : 'Donors';
+  const dir = await getDir(STATE.ledger.handle, dirName, true);
+
+  const disp = displayMap(fields, values);
+  const fieldRows = [{ label: S('col-id'), value: id }]
+    .concat(fields.filter(f => values[f.fieldname] != null && values[f.fieldname] !== '')
+      .map(f => ({ label: f.label || f.fieldname, value: disp[f.fieldname] != null ? disp[f.fieldname] : values[f.fieldname] })));
+  const html = recordPageHtml({
+    title: id + ' — ' + (values.name || ''),
+    subtitle: (kind === 'beneficiary' ? S('tab-beneficiary') : S('tab-donor')) + ' · ' + S('rec-generated-on') + ' ' + todayIso(),
+    fieldRows,
+    photo: extras && extras.photo || null,
+    images: extras && extras.images || [],
+    documents: [],
+    jsonId: 'record-data',
+    jsonData: { kind, id, name: values.name || '', created: todayIso(), values,
+      photo: extras && extras.photo || null, images: extras && extras.images || [] },
+  });
+  // 1) record file
+  await writeFileText(dir, fileName, html);
+  // 2) changelog
+  await appendChangelog(kind + '-created', id, (values.name || '') + ' (' + fileName + ')');
+  // 3) index last
+  idx().counters[kind] = (idx().counters[kind] || 0) + 1;
+  const entry = { id, name: values.name || '', file: dirName + '/' + fileName, created: todayIso() };
+  (kind === 'beneficiary' ? idx().beneficiaries : idx().donors).push(entry);
+  await writeLedgerIndex();
+  return entry;
+}
+
+async function saveMoneyRecord(kind, form) {
+  const block = STATE.ledger.config[kind] || {};
+  const fields = block.fields || [];
+  const values = form.getValues();
+  const refField = fields.find(f => f.type === 'reference' && (f.reference === 'beneficiary' || f.reference === 'donor'));
+  const personKind = refField ? refField.reference : (kind === 'donation' ? 'donor' : 'beneficiary');
+  const personId = refField ? values[refField.fieldname] : '';
+  const person = (personKind === 'donor' ? idx().donors : idx().beneficiaries).find(p => p.id === personId) || { id: personId, name: '' };
+
+  const refFieldName = (fields.find(f => String(f.type).replace(/\s+/g, '-') === 'random-generator') || {}).fieldname;
+  const reference = (refFieldName && values[refFieldName]) || genReference();
+  const dateField = block['folder-date-field'];
+  const recDate = (dateField && values[dateField]) || todayIso();
+  const amountField = (fields.find(f => f.type === 'number') || {}).fieldname;
+  const amount = amountField ? parseAmount(values[amountField]) : 0;
+
+  const parentName = kind === 'donation' ? 'Donations' : 'Disbursements';
+  const parent = await getDir(STATE.ledger.handle, parentName, true);
+  const folderName = recDate + '_' + (personId || 'X') + '_' + reference;
+  const folder = await getDir(parent, folderName, true);
+
+  // Tokens for document templates: field values (display form) + derived.
+  const disp = displayMap(fields, values);
+  const tokens = {};
+  fields.forEach(f => { if (f && f.fieldname) tokens[f.fieldname] = disp[f.fieldname] != null ? disp[f.fieldname] : (values[f.fieldname] || ''); });
+  tokens['fund-name'] = fundCfg().name || 'Fund Ledger';
+  tokens['reference'] = reference;
+  tokens['generated-date'] = todayIso();
+  tokens[personKind + '-id'] = person.id || '';
+  tokens[personKind + '-name'] = person.name || '';
+  if (amountField) tokens['amount'] = fmtMoney(amount);
+
+  // Generate the configured documents.
+  const tplDir = await getDir(STATE.ledger.handle, 'Templates', true);
+  const docs = [];         // { name (file), html }
+  const missing = [];
+  for (const tplName of (block.prints || [])) {
+    const md = await readFileTextOrNull(tplDir, tplName + '.md');
+    if (md == null) { missing.push(tplName); continue; }
+    const html = documentHtml(fillTemplate(md, tokens), tplName + ' ' + reference);
+    docs.push({ name: tplName + '_' + reference + '.html', html });
+  }
+
+  // 1) record folder + files
+  for (const d of docs) await writeFileText(folder, d.name, d.html);
+  const fieldRows = fields.filter(f => values[f.fieldname] != null && values[f.fieldname] !== '')
+    .map(f => ({ label: f.label || f.fieldname, value: disp[f.fieldname] != null ? disp[f.fieldname] : values[f.fieldname] }));
+  const recHtml = recordPageHtml({
+    title: (kind === 'donation' ? S('tab-donation') : S('tab-disbursement')) + ' ' + reference,
+    subtitle: person.id + ' — ' + person.name + ' · ' + recDate,
+    fieldRows,
+    photo: null, images: [],
+    documents: docs.map(d => d.name),
+    jsonId: 'record-data',
+    jsonData: { kind, reference, personId: person.id, personName: person.name, date: recDate,
+      amount, values, documents: docs.map(d => d.name), created: todayIso() },
+  });
+  await writeFileText(folder, 'record.html', recHtml);
+  // 2) changelog
+  await appendChangelog(kind + '-created', reference,
+    (person.id ? person.id + ' ' : '') + fmtMoney(amount) + ' (' + parentName + '/' + folderName + ')');
+  // 3) index last
+  const entry = { reference, personId: person.id, personName: person.name, date: recDate, amount,
+    folder: parentName + '/' + folderName, created: todayIso() };
+  (kind === 'donation' ? idx().donations : idx().disbursements).push(entry);
+  await writeLedgerIndex();
+
+  return { reference, docs, missing };
+}
+
+/* ── Rebuild the index by scanning record files (crash recovery) ─────────── */
+async function rebuildIndex() {
+  const root = STATE.ledger.handle;
+  const fresh = { version: 1, counters: { beneficiary: 0, donor: 0 }, beneficiaries: [], donors: [], donations: [], disbursements: [] };
+  for (const [dirName, kind, listKey] of [['Beneficiaries', 'beneficiary', 'beneficiaries'], ['Donors', 'donor', 'donors']]) {
+    const dir = await getDir(root, dirName, true);
+    for await (const entry of dir.values()) {
+      if (entry.kind !== 'file' || !/\.html$/i.test(entry.name)) continue;
+      const text = await (await entry.getFile()).text();
+      const data = extractEmbeddedJson(text, 'record-data');
+      if (!data || data.kind !== kind) continue;
+      fresh[listKey].push({ id: data.id, name: data.name || '', file: dirName + '/' + entry.name, created: data.created || '' });
+      const n = parseInt(String(data.id).replace(/^[BD]-/, ''), 10);
+      if (n > fresh.counters[kind]) fresh.counters[kind] = n;
+    }
+    fresh[listKey].sort((a, b) => a.id.localeCompare(b.id));
+  }
+  for (const [dirName, kind, listKey] of [['Donations', 'donation', 'donations'], ['Disbursements', 'disbursement', 'disbursements']]) {
+    const dir = await getDir(root, dirName, true);
+    for await (const entry of dir.values()) {
+      if (entry.kind !== 'directory') continue;
+      let text = null;
+      try { text = await (await (await entry.getFileHandle('record.html')).getFile()).text(); } catch (e) { continue; }
+      const data = extractEmbeddedJson(text, 'record-data');
+      if (!data || data.kind !== kind) continue;
+      fresh[listKey].push({ reference: data.reference, personId: data.personId || '', personName: data.personName || '',
+        date: data.date || '', amount: data.amount || 0, folder: dirName + '/' + entry.name, created: data.created || '' });
+    }
+    fresh[listKey].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+  STATE.ledger.index = fresh;
+  await appendChangelog('index-rebuilt', '-', `beneficiaries=${fresh.beneficiaries.length} donors=${fresh.donors.length} donations=${fresh.donations.length} disbursements=${fresh.disbursements.length}`);
+  await writeLedgerIndex();
+  render();
+  await kbAlert({ title: S('btn-rebuild-index'), message: S('rebuild-done', { b: fresh.beneficiaries.length, d: fresh.donors.length, don: fresh.donations.length, dis: fresh.disbursements.length }) });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ID CARD READER FLOW (embedded — capture.js is the idcardreader pipeline)
+   ══════════════════════════════════════════════════════════════════════════ */
+function embeddedIdTemplate(name) {
+  try {
+    const tpl = readInlineYaml('idtpl-' + name);
+    return tpl && typeof tpl === 'object' ? tpl : null;
+  } catch (e) { return null; }
+}
+
+function buildIdFlowCard(kind, host) {
+  // The flow keeps its own DOM inside `host` (full app re-renders would kill
+  // the canvases mid-crop), and stores progress in STATE.idFlow[kind].
+  const flow = STATE.idFlow[kind];
+  host.innerHTML = '';
+  if (!flow) return;
+  const tpl = flow.tpl;
+
+  const head = el('div', { className: 'kb-actbar', style: { marginBottom: '10px' } },
+    el('button', { className: 'kb-btn kb-btn--ghost kb-btn--sm', onClick: () => { STATE.idFlow[kind] = null; render(); } }, S('start-over')));
+  host.appendChild(head);
+
+  const sides = el('div', { className: 'idc-sides' });
+  host.appendChild(sides);
+  const sideNames = ['front'].concat(tpl.back ? ['back'] : []);
+  sideNames.forEach(side => {
+    const box = el('div');
+    box.appendChild(el('div', { className: 'idc-flabel', style: { marginBottom: '6px' } }, S(side === 'front' ? 'step-front' : 'step-back')));
+    const inner = el('div');
+    box.appendChild(inner);
+    if (flow.sideCanvas[side]) {
+      inner.appendChild(el('img', { className: 'idc-preview', src: canvasToDataURL(flow.sideCanvas[side], 'image/jpeg', 0.8) }));
+      inner.appendChild(el('div', { className: 'kb-actbar', style: { marginTop: '8px' } },
+        el('button', { className: 'kb-btn kb-btn--ghost kb-btn--sm', onClick: () => { flow.sideCanvas[side] = null; flow.results = null; buildIdFlowCard(kind, host); } }, S('recapture'))));
+    } else {
+      mountIdCapture(inner, tpl, side, canvas => { flow.sideCanvas[side] = canvas; flow.results = null; buildIdFlowCard(kind, host); });
+    }
+    sides.appendChild(box);
   });
 
-  const { seg: sizeSeg, label: szLabel } = makeSizeControl();
-  toolbar.append(
-    langSel,
-    el('div', { className: 'spacer' }),
-    sizeSeg, szLabel,
-    makeThemeButton(),
-    makeAboutButton(showAboutModal)
-  );
-  return toolbar;
+  const ready = sideNames.every(s => flow.sideCanvas[s]);
+  const bar = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
+  const extractBtn = el('button', { className: 'kb-btn kb-btn--primary', onClick: () => runIdExtraction(kind, host) }, S('btn-extract'));
+  extractBtn.disabled = !ready || flow.busy;
+  bar.appendChild(extractBtn);
+  if (flow.busy) bar.appendChild(el('span', { className: 'idc-muted' }, S('extracting')));
+  host.appendChild(bar);
+
+  if (flow.results) host.appendChild(buildIdReview(kind, host));
 }
 
-// Header: brand wordmark (kBenestad mark + org/tagline) + right-aligned title.
-function buildHeader() {
-  const header = el('header', { className: 'kb-header' });
+function mountIdCapture(host, tpl, side, onDone) {
+  host.innerHTML = '';
+  const drop = el('div', { className: 'idc-drop' });
+  drop.appendChild(el('div', { className: 'hint' }, S('capture-hint')));
+  const fileInput = el('input', { type: 'file', accept: 'image/*,application/pdf', style: { display: 'none' } });
+  drop.append(el('button', { className: 'kb-btn kb-btn--primary', onClick: () => fileInput.click() }, S('btn-upload')), fileInput);
+  host.appendChild(drop);
+  const work = el('div', { style: { marginTop: '10px' } });
+  host.appendChild(work);
 
-  const brand = el('div', { className: 'kb-brand' });
-  const tile = el('span', { className: 'logo' }); tile.innerHTML = KB_BRAND_SVG;
-  const org = el('span', { className: 'org' });
-  org.appendChild(document.createTextNode(CFG.organization || 'kbenestad/basis'));
-  const small = el('small'); small.textContent = CFG.tagline || S('subtitle');
-  org.appendChild(small);
-  brand.append(tile, org);
+  ['dragover', 'dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault();
+    drop.classList.toggle('is-over', ev === 'dragover');
+    if (ev === 'drop' && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  }));
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
 
-  const title = el('div', { className: 'kb-doctitle' });
-  title.appendChild(el('h1', null, 'basis'));   // ← your app name (add an icon SVG if you like)
-
-  header.append(brand, title);
-  return header;
+  async function handleFile(file) {
+    work.innerHTML = '<p class="idc-muted">…</p>';
+    let cap;
+    try { cap = await captureToImage(file); }
+    catch (e) { work.innerHTML = ''; work.appendChild(noteEl('error', e.message)); return; }
+    if (cap.isPdf && cap.pageCount > 1) showPagePicker(cap); else showCropper(cap.canvas);
+  }
+  function showPagePicker(cap) {
+    work.innerHTML = '';
+    work.appendChild(el('p', { className: 'idc-muted' }, S('pick-page')));
+    const thumbs = el('div', { className: 'idc-thumbs' });
+    cap.thumbnails.forEach(t => {
+      const cell = el('div', { className: 'idc-thumb', onClick: async () => { work.innerHTML = '<p class="idc-muted">…</p>'; showCropper(await cap.pickPage(t.page)); } });
+      cell.append(el('img', { src: t.dataUrl }), el('div', { className: 'n' }, String(t.page)));
+      thumbs.appendChild(cell);
+    });
+    work.appendChild(thumbs);
+  }
+  function showCropper(canvas) {
+    work.innerHTML = '';
+    const cropHost = el('div');
+    work.appendChild(cropHost);
+    const ctl = attachCropRotate(canvas, cropHost, { aspect: aspectRatioFor(tpl.aspect), allowOverflow: true });
+    work.appendChild(el('div', { className: 'kb-actbar', style: { marginTop: '12px' } },
+      el('button', { className: 'kb-btn kb-btn--primary', onClick: () => { const out = ctl.getResult(); ctl.destroy(); onDone(out); } }, S('use-this-image'))));
+  }
 }
 
-// Example content — DELETE and build your own cards/grids from kb-* components.
-function buildExampleCard() {
-  const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('example-section')));
-  const grid = el('div', { className: 'kb-grid cols-2' });
-  grid.append(
-    field(S('field-name'), el('input', { className: 'kb-input', placeholder: S('ph-name') })),
-    field(S('field-date'), el('input', { className: 'kb-input', type: 'date' }))
-  );
-  card.appendChild(grid);
+async function runIdExtraction(kind, host) {
+  const flow = STATE.idFlow[kind];
+  const tpl = flow.tpl;
+  flow.busy = true;
+  buildIdFlowCard(kind, host);
+  const ocrLang = tpl['ocr-language'] || CFG['ocr-language'] || 'eng';
+  const out = [];
+  const rawQr = {}, rawMrz = {};
+
+  let mergedPayload = null;
+  for (const side of ['front', 'back']) {
+    if (!tpl[side] || !flow.sideCanvas[side]) continue;
+    for (const f of tpl[side].fields.filter(f => f.type === 'qr')) {
+      const raw = decodeQr(cropRegion(flow.sideCanvas[side], f.region));
+      rawQr[side] = raw;
+      if (raw && tpl[side]['qr-parse']) {
+        const parsed = parseQrPayload(raw, tpl[side]['qr-parse']);
+        if (parsed) mergedPayload = Object.assign(mergedPayload || {}, parsed);
+      }
+    }
+  }
+  let mergedMrz = null;
+  for (const side of ['front', 'back']) {
+    if (!tpl[side] || !flow.sideCanvas[side]) continue;
+    for (const f of tpl[side].fields.filter(f => f.type === 'mrz')) {
+      const raw = await ocrMrz(cropRegion(flow.sideCanvas[side], f.region));
+      rawMrz[side] = raw;
+      const parsed = parseMrzTd3(raw);
+      if (parsed) mergedMrz = Object.assign(mergedMrz || {}, parsed);
+    }
+  }
+  for (const side of ['front', 'back']) {
+    if (!tpl[side] || !flow.sideCanvas[side]) continue;
+    for (const f of tpl[side].fields) {
+      const crop = cropRegion(flow.sideCanvas[side], f.region);
+      const r = { id: f.id, label: f.label || f.id, type: f.type, side, calendar: f.calendar || 'gregorian',
+        regionDataUrl: crop.toDataURL('image/jpeg', 0.8), ocrValue: '', qrValue: '', value: '', dateText: '',
+        conflict: false, resolved: true, photoDataUrl: null };
+      if (f.type === 'photo') {
+        r.photoDataUrl = crop.toDataURL('image/jpeg', 0.85);
+      } else if (f.type === 'qr') {
+        r.value = rawQr[side] || '';
+      } else if (f.type === 'mrz') {
+        r.value = rawMrz[side] || '';
+      } else if (f['mrz-key']) {
+        const v = mergedMrz && mergedMrz[f['mrz-key']];
+        r.value = v == null ? '' : (typeof v === 'boolean' ? (v ? 'OK' : 'MISMATCH') : String(v));
+      } else {
+        r.ocrValue = await ocrField(crop, ocrLang);
+        if (f.type === 'date' && r.ocrValue) { r.dateText = r.ocrValue; r.value = normaliseDate(r.ocrValue, r.calendar) || r.ocrValue; }
+        else r.value = r.ocrValue;
+        if (f['qr-key'] && mergedPayload && mergedPayload[f['qr-key']] != null) {
+          r.qrValue = mergedPayload[f['qr-key']];
+          const norm = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+          if (r.qrValue && norm(r.ocrValue) !== norm(r.qrValue)) { r.conflict = true; r.resolved = false; r.value = ''; }
+          else if (r.qrValue && !r.ocrValue) r.value = r.qrValue;
+        }
+      }
+      out.push(r);
+    }
+  }
+  flow.results = out;
+  flow.rawQr = rawQr;
+  flow.busy = false;
+  buildIdFlowCard(kind, host);
+}
+
+function buildIdReview(kind, host) {
+  const flow = STATE.idFlow[kind];
+  const card = el('div', { style: { marginTop: '16px' } });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('section-review')));
+
+  flow.results.forEach(r => {
+    const isPhoto = r.type === 'photo';
+    const row = el('div', { className: 'idc-fieldrow' + (isPhoto ? ' idc-photorow' : '') + (r.conflict && !r.resolved ? ' is-conflict' : '') });
+    const src = isPhoto && r.photoDataUrl ? r.photoDataUrl : r.regionDataUrl;
+    row.appendChild(el('div', null, el('img', { className: isPhoto ? 'idc-photoimg' : 'idc-regimg', src })));
+    const mid = el('div');
+    mid.appendChild(el('div', { className: 'idc-flabel', style: { marginBottom: '4px' } }, r.label));
+    if (isPhoto) {
+      mid.appendChild(el('p', { className: 'idc-muted' }, ''));
+    } else if (r.conflict && !r.resolved) {
+      mid.appendChild(el('p', { className: 'idc-muted' }, S('conflict-note')));
+      const cand = el('div', { className: 'idc-cand' });
+      const pick = v => { r.value = v; r.conflict = false; r.resolved = true; buildIdFlowCard(kind, host); };
+      [[S('source-ocr'), r.ocrValue], [S('source-qr'), r.qrValue]].forEach(([srcLabel, v]) => {
+        const b = el('button', { className: 'kb-btn kb-btn--ghost', onClick: () => pick(v) });
+        b.append(el('span', { className: 'src' }, srcLabel), el('span', null, v || S('field-empty')));
+        cand.appendChild(b);
+      });
+      mid.appendChild(cand);
+      const input = el('input', { className: 'kb-input', placeholder: S('field-empty') });
+      input.addEventListener('input', () => { if (input.value.trim()) { r.value = input.value.trim(); r.conflict = false; r.resolved = true; } });
+      mid.appendChild(input);
+    } else {
+      if (r.type === 'date' && r.dateText && r.dateText !== r.value) {
+        mid.appendChild(el('div', { className: 'idc-muted', style: { marginBottom: '3px' } }, S('source-ocr') + ': ' + r.dateText));
+      }
+      const input = el('input', { className: 'kb-input', value: r.value || '' });
+      input.addEventListener('input', () => { r.value = input.value; });
+      mid.appendChild(input);
+    }
+    row.appendChild(mid);
+    card.appendChild(row);
+  });
+
+  ['front', 'back'].forEach(side => {
+    if (flow.rawQr && flow.rawQr[side]) {
+      card.appendChild(el('div', { className: 'idc-flabel', style: { marginTop: '14px', marginBottom: '4px' } }, S('raw-qr-label')));
+      card.appendChild(el('div', { className: 'idc-rawqr' }, flow.rawQr[side]));
+    }
+  });
+
+  const unresolved = flow.results.filter(r => r.conflict && !r.resolved).length;
+  const actions = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
+  const applyBtn = el('button', { className: 'kb-btn kb-btn--primary', onClick: () => applyIdResults(kind) }, S('btn-apply-id'));
+  applyBtn.disabled = unresolved > 0;
+  actions.append(el('div', { className: 'spacer' }), applyBtn);
+  card.appendChild(actions);
   return card;
 }
 
+function applyIdResults(kind) {
+  const flow = STATE.idFlow[kind];
+  const block = STATE.ledger.config[kind] || {};
+  const byId = {};
+  flow.results.forEach(r => { byId[r.id] = r; });
+
+  // Map extracted values onto config fields via from_id (string or list).
+  const prefill = {};
+  (block.fields || []).forEach(f => {
+    if (!f || !f.from_id) return;
+    const ids = Array.isArray(f.from_id) ? f.from_id : [f.from_id];
+    const parts = ids.map(id => (byId[id] && byId[id].value) || '').filter(Boolean);
+    if (parts.length) prefill[f.fieldname] = parts.join(' ');
+  });
+
+  // First photo-type field = person photo; card sides go to the images list.
+  const photoField = flow.results.find(r => r.type === 'photo' && r.photoDataUrl && !/qr/i.test(r.id));
+  const images = [];
+  ['front', 'back'].forEach(side => {
+    if (flow.sideCanvas[side]) images.push({ label: flow.tpl.name + ' · ' + S(side === 'front' ? 'step-front' : 'step-back'), src: flow.sideCanvas[side].toDataURL('image/jpeg', 0.72) });
+  });
+  STATE.personDraft[kind] = { prefill, photo: photoField ? photoField.photoDataUrl : null, images, note: S('id-data-applied') };
+  STATE.idFlow[kind] = null;
+  render();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CHROME + TAB VIEWS
+   ══════════════════════════════════════════════════════════════════════════ */
+function noteEl(type, message) {
+  const n = el('div', { className: 'kb-note kb-note--' + type });
+  n.append(el('span', null, type === 'error' ? '⚠' : type === 'warning' ? '⚠' : type === 'success' ? '✓' : 'ℹ'), el('div', null, message));
+  return n;
+}
 function field(label, input) {
   const f = el('div', { className: 'kb-field' });
   f.append(el('span', { className: 'kb-label' }, label), input);
   return f;
 }
 
-// Reference for building a tabbed section: makeTabs() (app.js) builds the
-// kb-tablist/kb-tab strip + kb-tab-panel bodies from a plain
-// { label, content }[] — DELETE this whole card if your app has no tabs.
-function buildTabsDemo() {
-  const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, S('tabs-section')));
-  card.appendChild(makeTabs([
-    { label: S('tab-one'), content: el('p', { className: 'basis-tab-body' }, S('tab-one-body')) },
-    { label: S('tab-two'), content: el('p', { className: 'basis-tab-body' }, S('tab-two-body')) },
-  ]));
-  return card;
+function buildToolbar() {
+  const toolbar = el('div', { className: 'kb-toolbar' });
+  const langSel = el('select', { className: 'kb-select', 'aria-label': 'Language' });
+  (CFG.languages || []).forEach(l => {
+    const o = el('option', { value: l.code }, l.name || l.code);
+    if (l.code === lang) o.selected = true;
+    langSel.appendChild(o);
+  });
+  langSel.addEventListener('change', () => { applyLang(langSel.value); localStorage.setItem('fundledger-lang', langSel.value); render(); });
+  const { seg, label } = makeSizeControl();
+  toolbar.append(langSel, el('div', { className: 'spacer' }), seg, label, makeThemeButton(), makeAboutButton(showAboutModal));
+  return toolbar;
 }
-
-// Footer: kBenestad mark · © · repo link · About  —  version block (right).
+function buildHeader() {
+  const header = el('header', { className: 'kb-header' });
+  const brand = el('div', { className: 'kb-brand' });
+  const tile = el('span', { className: 'logo' });
+  if (kbTruthy(CFG.logo)) {
+    const img = el('img', { src: 'assets/logo.png', alt: CFG.organization || '' });
+    img.onerror = () => { img.src = 'assets/logo.jpg'; img.onerror = () => { tile.innerHTML = KB_BRAND_SVG; }; };
+    tile.appendChild(img);
+  } else tile.innerHTML = KB_BRAND_SVG;
+  const org = el('span', { className: 'org' });
+  org.appendChild(document.createTextNode(CFG.organization || 'kbenestad/fundledger'));
+  const small = el('small');
+  small.textContent = CFG.tagline || S('subtitle');
+  org.appendChild(small);
+  brand.append(tile, org);
+  const title = el('div', { className: 'kb-doctitle' });
+  title.appendChild(el('h1', null, 'Fund Ledger'));
+  header.append(brand, title);
+  return header;
+}
 function buildFooter() {
   const sep = () => el('span', { className: 'sep' }, '·');
   const footer = el('footer', { className: 'kb-footer' });
-  const mark = el('span', { className: 'kb-mark' }); mark.innerHTML = KB_FOOTER_MARK_SVG + 'kBenestad';
+  const mark = el('span', { className: 'kb-mark' });
+  mark.innerHTML = KB_FOOTER_MARK_SVG + 'kBenestad';
+  const version = el('div', { className: 'fl-version' });
+  version.append(
+    el('a', { href: APP_VERSION.prUrl, target: '_blank', rel: 'noopener' }, `v${APP_VERSION.version} • ${APP_VERSION.commit}`),
+    el('span', null, APP_VERSION.date));
   footer.append(
     mark,
     sep(), el('span', null, '© 2026 Kristian Benestad'),
-    sep(), el('a', { href: 'https://github.com/kbenestad/bizdocs', target: '_blank', rel: 'noopener' }, 'kbenestad/bizdocs'),
+    sep(), el('a', { href: 'https://github.com/kbenestad/fundledger', target: '_blank', rel: 'noopener' }, 'kbenestad/fundledger'),
     sep(), el('button', { type: 'button', onClick: showAboutModal }, CFG['about-title'] || 'About'),
     el('div', { className: 'spacer' }),
-    buildVersionBlock()
-  );
+    version);
   return footer;
 }
 
-// Right-aligned version block: vX.Y.Z • {commit} (links to the shipping PR)
-// on one line, the "last updated" date below.
-function buildVersionBlock() {
-  const wrap = el('div', { className: 'basis-version' });
-  wrap.append(
-    el('a', { href: APP_VERSION.prUrl, target: '_blank', rel: 'noopener' },
-      `v${APP_VERSION.version} • ${APP_VERSION.commit}`),
-    el('span', null, APP_VERSION.date)
-  );
+/* ── Dashboard tab ───────────────────────────────────────────────────────── */
+function buildDashboard() {
+  const wrap = el('div', { className: 'fl-tab-body' });
+  if (!window.showDirectoryPicker) {
+    wrap.appendChild(noteEl('error', S('browser-unsupported')));
+    return wrap;
+  }
+  if (!STATE.ledger) {
+    const card = el('div', { className: 'kb-card' });
+    card.appendChild(el('div', { className: 'kb-card__title' }, S('open-title')));
+    card.appendChild(el('p', { className: 'fl-muted', style: { marginBottom: '12px' } }, S('open-intro')));
+    const actions = el('div', { className: 'kb-actions' });
+    actions.appendChild(el('button', { className: 'kb-btn kb-btn--primary kb-btn--lg', onClick: openLedgerFolder }, S('btn-open-folder')));
+    card.appendChild(actions);
+    if (STATE.pendingHandle) {
+      card.appendChild(el('div', { style: { marginTop: '14px' } }, noteEl('info', S('reconnect-note'))));
+      const r = el('div', { className: 'kb-actions', style: { marginTop: '10px' } });
+      r.appendChild(el('button', { className: 'kb-btn kb-btn--soft', onClick: reconnectClick }, S('btn-reconnect', { name: STATE.pendingHandle.name })));
+      card.appendChild(r);
+    }
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  const t = totalsOf(idx());
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, (fundCfg().name || 'Fund Ledger')));
+  const stats = el('div', { className: 'fl-stats' });
+  [[S('total-donations'), fmtMoney(t.donations), false],
+   [S('total-disbursements'), fmtMoney(t.disbursements), false],
+   [S('balance'), fmtMoney(t.balance), t.balance < 0]].forEach(([labText, valText, neg]) => {
+    const s = el('div', { className: 'fl-stat' + (neg ? ' neg' : '') });
+    s.append(el('div', { className: 'lab' }, labText), el('div', { className: 'val' }, valText));
+    stats.appendChild(s);
+  });
+  card.appendChild(stats);
+  const counts = el('p', { className: 'fl-muted', style: { marginTop: '12px' } },
+    `${S('count-beneficiaries')}: ${idx().beneficiaries.length} · ${S('count-donors')}: ${idx().donors.length} · ` +
+    `${S('count-donations')}: ${idx().donations.length} · ${S('count-disbursements')}: ${idx().disbursements.length}`);
+  card.appendChild(counts);
+  card.appendChild(el('p', { className: 'fl-muted' }, S('connected-as', { name: STATE.ledger.name }) + ' — ' + S('ledger-file-note')));
+  const actions = el('div', { className: 'kb-actions', style: { marginTop: '12px' } });
+  actions.append(
+    el('button', { className: 'kb-btn kb-btn--ghost', onClick: rebuildIndex }, S('btn-rebuild-index')),
+    el('div', { className: 'spacer' }),
+    el('button', { className: 'kb-btn kb-btn--danger', onClick: closeLedger }, S('btn-close-ledger')));
+  card.appendChild(actions);
+  wrap.appendChild(card);
+
+  // Recent activity
+  const recent = el('div', { className: 'kb-card' });
+  recent.appendChild(el('div', { className: 'kb-card__title' }, S('recent-activity')));
+  const rows = []
+    .concat(idx().donations.map(r => ({ d: r.created || r.date, txt: S('tab-donation') + ' ' + r.reference + ' · ' + r.personId + ' ' + r.personName, amt: fmtMoney(r.amount) })))
+    .concat(idx().disbursements.map(r => ({ d: r.created || r.date, txt: S('tab-disbursement') + ' ' + r.reference + ' · ' + r.personId + ' ' + r.personName, amt: '−' + fmtMoney(r.amount) })))
+    .concat(idx().beneficiaries.map(p => ({ d: p.created, txt: S('tab-beneficiary') + ' ' + p.id + ' · ' + p.name, amt: '' })))
+    .concat(idx().donors.map(p => ({ d: p.created, txt: S('tab-donor') + ' ' + p.id + ' · ' + p.name, amt: '' })))
+    .sort((a, b) => String(b.d).localeCompare(String(a.d))).slice(0, 10);
+  if (!rows.length) recent.appendChild(el('p', { className: 'fl-muted' }, S('no-activity')));
+  else {
+    const table = el('table', { className: 'fl-table' });
+    rows.forEach(r => {
+      const tr = el('tr');
+      tr.append(el('td', { style: { whiteSpace: 'nowrap' } }, r.d || ''), el('td', null, r.txt), el('td', { className: 'num' }, r.amt));
+      table.appendChild(tr);
+    });
+    recent.appendChild(table);
+  }
+  wrap.appendChild(recent);
   return wrap;
 }
 
-// ── PDF output (pdf-lib) — minimal stub; build your real document here. ──────
-async function onDownload() {
-  const { PDFDocument, StandardFonts } = PDFLib;
-  const doc = await PDFDocument.create();
-  const page = doc.addPage();                 // A4 by default
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  page.drawText('basis', { x: 50, y: 790, size: 18, font });
-  const bytes = await doc.save();
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-  const a = el('a', { href: url, download: 'basis.pdf' }); a.click();
-  URL.revokeObjectURL(url);
+/* ── Person tabs (Beneficiary / Donor) ───────────────────────────────────── */
+function buildPersonTab(kind) {
+  const wrap = el('div', { className: 'fl-tab-body' });
+  if (!STATE.ledger) { wrap.appendChild(noteEl('info', S('not-connected-note'))); return wrap; }
+  const block = STATE.ledger.config[kind] || {};
+  const list = kind === 'beneficiary' ? idx().beneficiaries : idx().donors;
+
+  // Existing records
+  const listCard = el('div', { className: 'kb-card' });
+  listCard.appendChild(el('div', { className: 'kb-card__title' }, S(kind === 'beneficiary' ? 'beneficiaries-title' : 'donors-title')));
+  if (!list.length) listCard.appendChild(el('p', { className: 'fl-muted' }, S('no-persons')));
+  else {
+    const table = el('table', { className: 'fl-table' });
+    const head = el('tr');
+    [S('col-id'), S('col-name'), S('col-created')].forEach(h => head.appendChild(el('th', null, h)));
+    table.appendChild(head);
+    list.forEach(p => {
+      const tr = el('tr');
+      tr.append(el('td', { className: 'fl-mono' }, p.id), el('td', null, p.name), el('td', null, p.created));
+      table.appendChild(tr);
+    });
+    listCard.appendChild(table);
+  }
+  wrap.appendChild(listCard);
+
+  // New record
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S(kind === 'beneficiary' ? 'new-b-title' : 'new-d-title')));
+
+  const idMode = block.mode === 'idcardreader';
+  const draft = STATE.personDraft[kind];
+
+  if (idMode && !draft && !STATE.idFlow[kind]) {
+    // Offer the choice (brief: "When clicking Create, offered a choice").
+    const actions = el('div', { className: 'kb-actions' });
+    actions.appendChild(el('button', { className: 'kb-btn kb-btn--primary', onClick: async () => {
+      const choice = await kbModal({
+        title: S('choose-entry-title'), bodyHTML: kbMessageHTML(S('choose-entry-message')), dismissValue: null,
+        buttons: [
+          { label: S('mode-idcard'), value: 'id', variant: 'kb-btn--primary' },
+          { label: S('mode-plaintext'), value: 'plain', variant: 'kb-btn--ghost' },
+        ],
+      });
+      if (choice === 'id') {
+        const tpl = embeddedIdTemplate(block['id-template']);
+        if (!tpl) {
+          await kbAlert({ title: 'Error', message: S('id-template-missing', { name: String(block['id-template'] || '') }) });
+          STATE.personDraft[kind] = { prefill: {}, photo: null, images: [], note: null };
+        } else {
+          STATE.idFlow[kind] = { tpl, sideCanvas: {}, results: null, rawQr: {}, busy: false };
+        }
+        render();
+      } else if (choice === 'plain') {
+        STATE.personDraft[kind] = { prefill: {}, photo: null, images: [], note: null };
+        render();
+      }
+    } }, S(kind === 'beneficiary' ? 'btn-new-beneficiary' : 'btn-new-donor')));
+    card.appendChild(actions);
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  if (STATE.idFlow[kind]) {
+    const host = el('div');
+    card.appendChild(host);
+    buildIdFlowCard(kind, host);
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  // Plaintext form (possibly prefilled from the ID flow).
+  if (draft && draft.note) card.appendChild(el('div', { style: { marginBottom: '12px' } }, noteEl('success', draft.note)));
+  if (draft && draft.photo) {
+    card.appendChild(el('img', { src: draft.photo, style: { maxWidth: '130px', maxHeight: '170px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '12px' } }));
+  }
+  const form = buildConfigForm(block.fields || []);
+  if (draft && draft.prefill) form.setValues(draft.prefill);
+  card.appendChild(form.root);
+  const actions = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
+  const cancelBtn = el('button', { className: 'kb-btn kb-btn--ghost', onClick: () => { STATE.personDraft[kind] = null; render(); } }, S('cancel'));
+  const saveBtn = el('button', { className: 'kb-btn kb-btn--primary', onClick: async () => {
+    if (!form.validate()) return;
+    saveBtn.disabled = true;
+    try {
+      const extras = { photo: draft && draft.photo || null, images: draft && draft.images || [] };
+      const entry = await savePerson(kind, form.getValues(), block.fields || [], extras);
+      STATE.personDraft[kind] = null;
+      render();
+      await kbAlert({ title: entry.id, message: S('person-saved', { id: entry.id }), icon: KB_ICON.info });
+    } catch (e) {
+      console.error(e);
+      saveBtn.disabled = false;
+      await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+    }
+  } }, S('save'));
+  if (idMode) actions.appendChild(cancelBtn);
+  actions.append(el('div', { className: 'spacer' }), saveBtn);
+  card.appendChild(actions);
+  wrap.appendChild(card);
+  return wrap;
 }
 
-// ── Boot ───────────────────────────────────────────────────────────────────
+/* ── Money tabs (Donation / Disbursement) ────────────────────────────────── */
+function buildMoneyTab(kind) {
+  const wrap = el('div', { className: 'fl-tab-body' });
+  if (!STATE.ledger) { wrap.appendChild(noteEl('info', S('not-connected-note'))); return wrap; }
+  const block = STATE.ledger.config[kind] || {};
+  const fields = block.fields || [];
+  const personKind = kind === 'donation' ? 'donor' : 'beneficiary';
+  const persons = personKind === 'donor' ? idx().donors : idx().beneficiaries;
+
+  // Post-save panel (documents + print buttons)
+  const last = STATE.lastSaved[kind];
+  if (last) {
+    const done = el('div', { className: 'kb-card' });
+    done.appendChild(el('div', { className: 'kb-card__title' }, S('documents-title')));
+    done.appendChild(el('div', { style: { marginBottom: '10px' } }, noteEl('success', S('record-saved', { reference: last.reference }))));
+    last.missing.forEach(name => done.appendChild(el('div', { style: { marginBottom: '8px' } }, noteEl('warning', S('template-missing', { name })))));
+    if (last.docs.length) {
+      const bar = el('div', { className: 'kb-actbar' });
+      last.docs.forEach(d => bar.appendChild(el('button', { className: 'kb-btn kb-btn--soft', onClick: () => printHtml(d.html) }, S('btn-print') + ' · ' + d.name)));
+      done.appendChild(bar);
+      done.appendChild(el('p', { className: 'fl-muted', style: { marginTop: '8px' } }, S('print-auto-note')));
+    }
+    wrap.appendChild(done);
+  }
+
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S(kind === 'donation' ? 'tab-donation' : 'tab-disbursement')));
+  if (!persons.length) {
+    card.appendChild(noteEl('warning', S('need-persons-first', { kind: S('kind-' + personKind) })));
+    wrap.appendChild(card);
+    return wrap;
+  }
+  const form = buildConfigForm(fields);
+  card.appendChild(form.root);
+  const actions = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
+  const saveBtn = el('button', { className: 'kb-btn kb-btn--primary', onClick: async () => {
+    if (!form.validate()) return;
+    saveBtn.disabled = true;
+    try {
+      const res = await saveMoneyRecord(kind, form);
+      STATE.lastSaved[kind] = res;
+      render();
+      if (res.docs.length) printHtml(res.docs[0].html);   // auto-print the first document
+    } catch (e) {
+      console.error(e);
+      saveBtn.disabled = false;
+      await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+    }
+  } }, S('btn-save-record'));
+  actions.append(el('div', { className: 'spacer' }), saveBtn);
+  card.appendChild(actions);
+  wrap.appendChild(card);
+  return wrap;
+}
+
+/* ── Configuration tab ───────────────────────────────────────────────────── */
+function buildConfigTab() {
+  const wrap = el('div', { className: 'fl-tab-body' });
+  if (!STATE.ledger) { wrap.appendChild(noteEl('info', S('not-connected-note'))); return wrap; }
+
+  // Deep working copy — editors mutate this; Save writes it to config.yml.
+  const work = JSON.parse(JSON.stringify(STATE.ledger.config));
+  const card = el('div', { className: 'kb-card' });
+  card.appendChild(el('div', { className: 'kb-card__title' }, S('config-title')));
+  card.appendChild(el('p', { className: 'fl-muted', style: { marginBottom: '12px' } }, S('cfg-intro')));
+
+  const FIELD_TYPES = ['text', 'textarea', 'date', 'number', 'drop-down', 'random-generator', 'reference'];
+  const CORE_KEYS = ['fieldname', 'label', 'type'];
+
+  function inp(value, onInput, cls) {
+    const i = el('input', { className: cls || 'kb-input', value: value == null ? '' : String(value) });
+    i.addEventListener('input', () => onInput(i.value));
+    return i;
+  }
+
+  // Fund & currency
+  function fundSection() {
+    const box = el('div');
+    work.fund = work.fund || {};
+    const grid = el('div', { className: 'kb-grid cols-2' });
+    grid.append(
+      field(S('fund-name'), inp(work.fund.name, v => { work.fund.name = v; })),
+      field(S('currency-code'), inp(work.fund['currency-code'], v => { work.fund['currency-code'] = v; })),
+      field(S('currency-symbol'), inp(work.fund['currency-symbol'], v => { work.fund['currency-symbol'] = v; })));
+    const posSel = el('select', { className: 'kb-select' });
+    [['before', S('pos-before')], ['after', S('pos-after')]].forEach(([v, labText]) => {
+      const o = el('option', { value: v }, labText);
+      if ((work.fund['currency-position'] || 'before') === v) o.selected = true;
+      posSel.appendChild(o);
+    });
+    posSel.addEventListener('change', () => { work.fund['currency-position'] = posSel.value; });
+    grid.appendChild(field(S('currency-position'), posSel));
+    box.appendChild(grid);
+    return box;
+  }
+
+  // Entry modes
+  function modesSection() {
+    const box = el('div');
+    const grid = el('div', { className: 'kb-grid cols-2' });
+    ['beneficiary', 'donor'].forEach(kind => {
+      work[kind] = work[kind] || {};
+      const sel = el('select', { className: 'kb-select' });
+      [['plaintext', S('mode-plaintext')], ['idcardreader', S('mode-idcard')]].forEach(([v, labText]) => {
+        const o = el('option', { value: v }, labText);
+        if ((work[kind].mode || 'plaintext') === v) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', () => { work[kind].mode = sel.value; });
+      grid.appendChild(field(S('mode-for', { kind: S('tab-' + kind) }), sel));
+      grid.appendChild(field(S('id-template-for', { kind: S('tab-' + kind) }), inp(work[kind]['id-template'], v => { work[kind]['id-template'] = v; })));
+    });
+    box.appendChild(grid);
+    return box;
+  }
+
+  // Field-list editor for one block
+  function fieldsSection(blockKey, withPrints) {
+    const box = el('div');
+    work[blockKey] = work[blockKey] || {};
+    work[blockKey].fields = work[blockKey].fields || [];
+    const listHost = el('div');
+    box.appendChild(listHost);
+
+    function extraKeysYaml(f) {
+      const extra = {};
+      Object.keys(f).forEach(k => { if (!CORE_KEYS.includes(k)) extra[k] = f[k]; });
+      return Object.keys(extra).length ? jsyaml.dump(extra, { flowLevel: 1 }).trim() : '';
+    }
+    function repaint() {
+      listHost.innerHTML = '';
+      work[blockKey].fields.forEach((f, i) => {
+        const row = el('div', { className: 'fl-fieldrow' });
+        row.appendChild(field(S('fld-fieldname'), inp(f.fieldname, v => { f.fieldname = v.trim(); })));
+        row.appendChild(field(S('fld-label'), inp(f.label, v => { f.label = v; })));
+        const typeSel = el('select', { className: 'kb-select' });
+        FIELD_TYPES.forEach(t => {
+          const o = el('option', { value: t }, t);
+          if (String(f.type || 'text').replace(/\s+/g, '-') === t) o.selected = true;
+          typeSel.appendChild(o);
+        });
+        typeSel.addEventListener('change', () => { f.type = typeSel.value; });
+        row.appendChild(field(S('fld-type'), typeSel));
+        const ta = el('textarea', { className: 'kb-textarea', rows: 2, value: extraKeysYaml(f) });
+        ta.addEventListener('change', () => {
+          try {
+            const extra = ta.value.trim() ? jsyaml.load(ta.value) : {};
+            Object.keys(f).forEach(k => { if (!CORE_KEYS.includes(k)) delete f[k]; });
+            if (extra && typeof extra === 'object') Object.assign(f, extra);
+            ta.classList.remove('is-error');
+          } catch (e) { ta.classList.add('is-error'); }
+        });
+        row.appendChild(field(S('fld-extra'), ta));
+        const btns = el('div', { className: 'fl-rowbtns', style: { paddingTop: '22px' } });
+        const mk = (txt, title, fn) => {
+          const b = el('button', { type: 'button', className: 'kb-circbtn', title, onClick: fn }, txt);
+          return b;
+        };
+        btns.append(
+          mk('↑', S('move-up'), () => { if (i > 0) { const a = work[blockKey].fields; [a[i - 1], a[i]] = [a[i], a[i - 1]]; repaint(); } }),
+          mk('↓', S('move-down'), () => { const a = work[blockKey].fields; if (i < a.length - 1) { [a[i + 1], a[i]] = [a[i], a[i + 1]]; repaint(); } }),
+          mk('✕', S('remove'), () => { work[blockKey].fields.splice(i, 1); repaint(); }));
+        btns.lastChild.classList.add('kb-circbtn--rm');
+        row.appendChild(btns);
+        listHost.appendChild(row);
+      });
+    }
+    repaint();
+    const bar = el('div', { className: 'kb-actbar', style: { marginTop: '10px' } });
+    bar.appendChild(el('button', { className: 'kb-btn kb-btn--dashed', onClick: () => { work[blockKey].fields.push({ fieldname: '', label: '', type: 'text' }); repaint(); } }, S('add-field')));
+    box.appendChild(bar);
+    if (withPrints) {
+      const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 3, value: (work[blockKey].prints || []).join('\n') });
+      ta.addEventListener('input', () => { work[blockKey].prints = ta.value.split('\n').map(s => s.trim()).filter(Boolean); });
+      box.appendChild(el('div', { style: { marginTop: '12px' } }, field(S('prints-label'), ta)));
+    }
+    return box;
+  }
+
+  // Drop-down lists editor
+  function listsSection() {
+    const box = el('div');
+    work['drop-down-lists'] = work['drop-down-lists'] || [];
+    const host = el('div');
+    box.appendChild(host);
+    function repaint() {
+      host.innerHTML = '';
+      work['drop-down-lists'].forEach((l, i) => {
+        const grid = el('div', { className: 'kb-grid cols-2', style: { marginBottom: '10px' } });
+        grid.appendChild(field(S('list-name'), inp(l.name, v => { l.name = v.trim(); })));
+        const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 4, value: (l.values || []).join('\n') });
+        ta.addEventListener('input', () => { l.values = ta.value.split('\n').map(s => s.trim()).filter(Boolean); });
+        const f2 = field(S('list-values'), ta);
+        grid.appendChild(f2);
+        const rm = el('button', { type: 'button', className: 'kb-circbtn kb-circbtn--rm', title: S('remove'), onClick: () => { work['drop-down-lists'].splice(i, 1); repaint(); } }, '✕');
+        grid.appendChild(el('div', null, rm));
+        host.appendChild(grid);
+      });
+    }
+    repaint();
+    box.appendChild(el('button', { className: 'kb-btn kb-btn--dashed', onClick: () => { work['drop-down-lists'].push({ name: '', values: [] }); box.replaceWith(listsSection()); } }, S('add-list')));
+    return box;
+  }
+
+  // Theme (inline mdcms block)
+  let themeTa;
+  function themeSection() {
+    const box = el('div');
+    box.appendChild(el('p', { className: 'fl-muted', style: { marginBottom: '8px' } }, S('theme-hint')));
+    themeTa = el('textarea', { className: 'kb-textarea fl-mono', rows: 10,
+      value: work.theme ? (typeof work.theme === 'object' ? jsyaml.dump(work.theme) : String(work.theme)) : '' });
+    box.appendChild(themeTa);
+    return box;
+  }
+
+  // Raw YAML
+  let rawTa, rawNote;
+  function rawSection() {
+    const box = el('div');
+    box.appendChild(el('p', { className: 'fl-muted', style: { marginBottom: '8px' } }, S('raw-hint')));
+    rawTa = el('textarea', { className: 'kb-textarea fl-mono', rows: 18, value: jsyaml.dump(work, { lineWidth: 110 }) });
+    box.appendChild(rawTa);
+    rawNote = el('div', { style: { marginTop: '8px' } });
+    box.appendChild(rawNote);
+    const bar = el('div', { className: 'kb-actbar', style: { marginTop: '8px' } });
+    bar.appendChild(el('button', { className: 'kb-btn kb-btn--soft', onClick: () => {
+      rawNote.innerHTML = '';
+      try {
+        const parsed = jsyaml.load(rawTa.value);
+        if (!parsed || typeof parsed !== 'object') throw new Error('not a YAML mapping');
+        Object.keys(work).forEach(k => delete work[k]);
+        Object.assign(work, parsed);
+        rawNote.appendChild(noteEl('success', S('raw-applied')));
+        render();   // repaint the structured editors from the new working copy
+      } catch (e) { rawNote.appendChild(noteEl('error', S('raw-parse-error', { error: e.message }))); }
+    } }, S('btn-apply-raw')));
+    box.appendChild(bar);
+    return box;
+  }
+
+  card.appendChild(makeAccordion([
+    { label: S('cfg-fund'), content: fundSection() },
+    { label: S('cfg-modes'), content: modesSection() },
+    { label: S('cfg-beneficiary'), content: fieldsSection('beneficiary', false) },
+    { label: S('cfg-donor'), content: fieldsSection('donor', false) },
+    { label: S('cfg-donation'), content: fieldsSection('donation', true) },
+    { label: S('cfg-disbursement'), content: fieldsSection('disbursement', true) },
+    { label: S('cfg-lists'), content: listsSection() },
+    { label: S('cfg-theme'), content: themeSection() },
+    { label: S('cfg-raw'), content: rawSection() },
+  ], { openAllLabel: S('open-all'), closeAllLabel: S('close-all') }));
+
+  const saveNote = el('div', { style: { marginTop: '10px' } });
+  const actions = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
+  const saveBtn = el('button', { className: 'kb-btn kb-btn--primary', onClick: async () => {
+    saveNote.innerHTML = '';
+    // Theme textarea → object / path string / empty.
+    const tText = themeTa.value.trim();
+    if (!tText) { delete work.theme; }
+    else {
+      try {
+        const parsed = jsyaml.load(tText);
+        work.theme = (parsed && typeof parsed === 'object') ? parsed : tText;
+      } catch (e) { saveNote.appendChild(noteEl('error', S('theme-parse-error', { error: e.message }))); return; }
+    }
+    saveBtn.disabled = true;
+    try {
+      const yamlText = jsyaml.dump(work, { lineWidth: 110 });
+      await writeFileText(STATE.ledger.handle, 'config.yml', yamlText);
+      STATE.ledger.config = JSON.parse(JSON.stringify(work));
+      await appendChangelog('config-updated', '-', 'config.yml saved from the Configuration tab');
+      await applyThemeConfig(STATE.ledger.config.theme || CFG.theme);
+      await writeLedgerIndex();   // fund name / currency may have changed
+      render();
+      await kbAlert({ title: S('config-title'), message: S('config-saved'), icon: KB_ICON.info });
+    } catch (e) {
+      saveBtn.disabled = false;
+      await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+    }
+  } }, S('btn-save-config'));
+  actions.append(el('div', { className: 'spacer' }), saveBtn);
+  card.appendChild(saveNote);
+  card.appendChild(actions);
+  wrap.appendChild(card);
+  return wrap;
+}
+
+/* ── Render ──────────────────────────────────────────────────────────────── */
+function render() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const wrap = el('div', { className: 'kb-wrap' });
+  wrap.append(buildToolbar(), buildHeader());
+
+  const tabs = makeTabs([
+    { label: S('tab-dashboard'), content: buildDashboard() },
+    { label: S('tab-disbursement'), content: buildMoneyTab('disbursement') },
+    { label: S('tab-beneficiary'), content: buildPersonTab('beneficiary') },
+    { label: S('tab-donation'), content: buildMoneyTab('donation') },
+    { label: S('tab-donor'), content: buildPersonTab('donor') },
+    { label: S('tab-configuration'), content: buildConfigTab() },
+  ], { defaultIndex: STATE.tab });
+  // Remember the active tab across re-renders.
+  $$('.kb-tab', tabs).forEach((btn, i) => btn.addEventListener('click', () => { STATE.tab = i; }));
+  wrap.appendChild(tabs);
+
+  wrap.appendChild(buildFooter());
+  app.appendChild(wrap);
+  updateThemeIcon();
+}
+
+/* ── Boot ────────────────────────────────────────────────────────────────── */
 try {
-  CFG = await loadYamlConfig();   // fetch + parse config.yml (shared helper)
-  assertValidConfig(CFG);         // guard: catch HTML-instead-of-YAML (see below)
+  if (typeof jsyaml === 'undefined') {
+    throw new Error('The js-yaml library did not load. Fund Ledger loads its libraries from a CDN, '
+      + 'so the first launch (and ID-card extraction) needs an internet connection; afterwards the '
+      + 'browser cache usually covers offline use.');
+  }
+  CFG = readInlineYaml('boot-config');
+  assertValidConfig(CFG);
   normaliseConfig();
-  applyAccent(CFG);               // apply config accent-colour to --accent
-  await applyMdcmsTheme(CFG, ''); // apply config theme (overrides accent-colour + more)
-  initFontScale();                // restore persisted text size
-  lang = localStorage.getItem('basis-lang') || CFG['default-code'] || 'en';
+  applyAccent(CFG);
+  await applyThemeConfig(CFG.theme);
+  initFontScale();
+  lang = localStorage.getItem('fundledger-lang') || CFG['default-code'] || 'en';
   applyLang(lang);
+  await tryReconnect();   // silent if permission is still granted
   render();
 } catch (e) {
+  console.error(e);
   document.getElementById('app').innerHTML =
     `<div class="kb-wrap"><div class="kb-note kb-note--error"><span>⚠</span>` +
-    `<div><b>Failed to load config.yml</b><br>${e.message}</div></div></div>`;
+    `<div><b>Fund Ledger failed to start</b><br>${kbEsc(e.message)}</div></div></div>`;
 }
 })();
 </script>
