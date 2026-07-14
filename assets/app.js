@@ -1,0 +1,1151 @@
+/* =============================================================================
+ * bizdocs — Shared app runtime   (assets/app.js)
+ * -----------------------------------------------------------------------------
+ * Cross-cutting JavaScript shared by every app (invoice, reimburse, timesheet…)
+ * via, just before each app's own inline <script>:
+ *     <script src="../assets/app.js"></script>
+ *
+ * Classic (non-module) script: the names below become globals visible to the
+ * app script that loads after it. Each app deletes its own copy of these and
+ * calls into here instead, so behaviour stays identical across apps and is
+ * fixed in one place.
+ *
+ * Provides: DOM helpers ($, $$, el, uid) · markdown() · brand/icon SVGs ·
+ * theme (currentTheme/toggleTheme/makeThemeButton) · modals (kbModal/kbConfirm/
+ * kbAlert/kbAbout) · file download/upload (kbDownloadFile/kbReadFileAsText) ·
+ * shared profile & document records (loadSharedProfile/saveSharedProfile/
+ * kbPushRecord).
+ * ========================================================================== */
+"use strict";
+
+/* ── DOM helpers ───────────────────────────────────────────────────────────── */
+const $  = (sel, ctx) => (ctx || document).querySelector(sel);
+const $$ = (sel, ctx) => [...(ctx || document).querySelectorAll(sel)];
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+/** Create an element. attrs: className, style(object), on<Event> handlers, or
+ *  plain attributes. children: string | Node | array of them. */
+const el = (tag, attrs, children) => {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+    if (k === 'className') e.className = v;
+    else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (v != null && v !== false) e.setAttribute(k, v);
+  });
+  if (children) (Array.isArray(children) ? children : [children]).forEach(c => {
+    if (c == null) return;
+    e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  });
+  return e;
+};
+
+/** Escape a string for interpolation into HTML (element and attribute
+ *  contexts). Use for ANY dynamic value — error messages, config strings,
+ *  user input — that ends up inside an innerHTML/template-literal build. */
+function kbEsc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ── Countries (shared select list — same list/codes everywhere a "country"
+ * field exists, so e.g. dashboard's profile and invoice's sender/client
+ * country selects always agree) ───────────────────────────────────────────── */
+const KB_COUNTRIES = [
+  ["","— Select country —"],
+  ["AF","Afghanistan"],["AX","Åland Islands"],["AL","Albania"],["DZ","Algeria"],
+  ["AS","American Samoa"],["AD","Andorra"],["AO","Angola"],["AI","Anguilla"],
+  ["AQ","Antarctica"],["AG","Antigua and Barbuda"],["AR","Argentina"],
+  ["AM","Armenia"],["AW","Aruba"],["AU","Australia"],["AT","Austria"],
+  ["AZ","Azerbaijan"],["BS","Bahamas"],["BH","Bahrain"],["BD","Bangladesh"],
+  ["BB","Barbados"],["BY","Belarus"],["BE","Belgium"],["BZ","Belize"],
+  ["BJ","Benin"],["BM","Bermuda"],["BT","Bhutan"],["BO","Bolivia"],
+  ["BQ","Bonaire, Sint Eustatius and Saba"],["BA","Bosnia and Herzegovina"],
+  ["BW","Botswana"],["BV","Bouvet Island"],["BR","Brazil"],
+  ["IO","British Indian Ocean Territory"],["BN","Brunei"],["BG","Bulgaria"],
+  ["BF","Burkina Faso"],["BI","Burundi"],["CV","Cabo Verde"],["KH","Cambodia"],
+  ["CM","Cameroon"],["CA","Canada"],["KY","Cayman Islands"],
+  ["CF","Central African Republic"],["TD","Chad"],["CL","Chile"],["CN","China"],
+  ["CX","Christmas Island"],["CC","Cocos (Keeling) Islands"],["CO","Colombia"],
+  ["KM","Comoros"],["CG","Congo"],["CD","Congo, Democratic Republic"],
+  ["CK","Cook Islands"],["CR","Costa Rica"],["CI","Côte d'Ivoire"],
+  ["HR","Croatia"],["CU","Cuba"],["CW","Curaçao"],["CY","Cyprus"],
+  ["CZ","Czech Republic"],["DK","Denmark"],["DJ","Djibouti"],["DM","Dominica"],
+  ["DO","Dominican Republic"],["EC","Ecuador"],["EG","Egypt"],
+  ["SV","El Salvador"],["GQ","Equatorial Guinea"],["ER","Eritrea"],
+  ["EE","Estonia"],["SZ","Eswatini"],["ET","Ethiopia"],
+  ["FK","Falkland Islands"],["FO","Faroe Islands"],["FJ","Fiji"],
+  ["FI","Finland"],["FR","France"],["GF","French Guiana"],
+  ["PF","French Polynesia"],["TF","French Southern Territories"],["GA","Gabon"],
+  ["GM","Gambia"],["GE","Georgia"],["DE","Germany"],["GH","Ghana"],
+  ["GI","Gibraltar"],["GR","Greece"],["GL","Greenland"],["GD","Grenada"],
+  ["GP","Guadeloupe"],["GU","Guam"],["GT","Guatemala"],["GG","Guernsey"],
+  ["GN","Guinea"],["GW","Guinea-Bissau"],["GY","Guyana"],["HT","Haiti"],
+  ["HM","Heard Island and McDonald Islands"],["VA","Holy See"],["HN","Honduras"],
+  ["HK","Hong Kong"],["HU","Hungary"],["IS","Iceland"],["IN","India"],
+  ["ID","Indonesia"],["IR","Iran"],["IQ","Iraq"],["IE","Ireland"],
+  ["IM","Isle of Man"],["IL","Israel"],["IT","Italy"],["JM","Jamaica"],
+  ["JP","Japan"],["JE","Jersey"],["JO","Jordan"],["KZ","Kazakhstan"],
+  ["KE","Kenya"],["KI","Kiribati"],["KP","Korea, North"],["KR","Korea, South"],
+  ["KW","Kuwait"],["KG","Kyrgyzstan"],["LA","Laos"],["LV","Latvia"],
+  ["LB","Lebanon"],["LS","Lesotho"],["LR","Liberia"],["LY","Libya"],
+  ["LI","Liechtenstein"],["LT","Lithuania"],["LU","Luxembourg"],["MO","Macao"],
+  ["MG","Madagascar"],["MW","Malawi"],["MY","Malaysia"],["MV","Maldives"],
+  ["ML","Mali"],["MT","Malta"],["MH","Marshall Islands"],["MQ","Martinique"],
+  ["MR","Mauritania"],["MU","Mauritius"],["YT","Mayotte"],["MX","Mexico"],
+  ["FM","Micronesia"],["MD","Moldova"],["MC","Monaco"],["MN","Mongolia"],
+  ["ME","Montenegro"],["MS","Montserrat"],["MA","Morocco"],["MZ","Mozambique"],
+  ["MM","Myanmar"],["NA","Namibia"],["NR","Nauru"],["NP","Nepal"],
+  ["NL","Netherlands"],["NC","New Caledonia"],["NZ","New Zealand"],
+  ["NI","Nicaragua"],["NE","Niger"],["NG","Nigeria"],["NU","Niue"],
+  ["NF","Norfolk Island"],["MK","North Macedonia"],
+  ["MP","Northern Mariana Islands"],["NO","Norway"],["OM","Oman"],
+  ["PK","Pakistan"],["PW","Palau"],["PS","Palestine"],["PA","Panama"],
+  ["PG","Papua New Guinea"],["PY","Paraguay"],["PE","Peru"],["PH","Philippines"],
+  ["PN","Pitcairn"],["PL","Poland"],["PT","Portugal"],["PR","Puerto Rico"],
+  ["QA","Qatar"],["RE","Réunion"],["RO","Romania"],["RU","Russia"],
+  ["RW","Rwanda"],["BL","Saint Barthélemy"],["SH","Saint Helena"],
+  ["KN","Saint Kitts and Nevis"],["LC","Saint Lucia"],
+  ["MF","Saint Martin (French)"],["PM","Saint Pierre and Miquelon"],
+  ["VC","Saint Vincent and the Grenadines"],["WS","Samoa"],["SM","San Marino"],
+  ["ST","Sao Tome and Principe"],["SA","Saudi Arabia"],["SN","Senegal"],
+  ["RS","Serbia"],["SC","Seychelles"],["SL","Sierra Leone"],["SG","Singapore"],
+  ["SX","Sint Maarten"],["SK","Slovakia"],["SI","Slovenia"],
+  ["SB","Solomon Islands"],["SO","Somalia"],["ZA","South Africa"],
+  ["GS","South Georgia and South Sandwich Islands"],["SS","South Sudan"],
+  ["ES","Spain"],["LK","Sri Lanka"],["SD","Sudan"],["SR","Suriname"],
+  ["SJ","Svalbard and Jan Mayen"],["SE","Sweden"],["CH","Switzerland"],
+  ["SY","Syria"],["TW","Taiwan"],["TJ","Tajikistan"],["TZ","Tanzania"],
+  ["TH","Thailand"],["TL","Timor-Leste"],["TG","Togo"],["TK","Tokelau"],
+  ["TO","Tonga"],["TT","Trinidad and Tobago"],["TN","Tunisia"],["TR","Turkey"],
+  ["TM","Turkmenistan"],["TC","Turks and Caicos Islands"],["TV","Tuvalu"],
+  ["UG","Uganda"],["UA","Ukraine"],["AE","United Arab Emirates"],
+  ["GB","United Kingdom"],["UM","United States Minor Outlying Islands"],
+  ["US","United States"],["UY","Uruguay"],["UZ","Uzbekistan"],["VU","Vanuatu"],
+  ["VE","Venezuela"],["VN","Vietnam"],["VG","Virgin Islands, British"],
+  ["VI","Virgin Islands, U.S."],["WF","Wallis and Futuna"],
+  ["EH","Western Sahara"],["YE","Yemen"],["ZM","Zambia"],["ZW","Zimbabwe"]
+];
+const KB_COUNTRY_MAP = Object.fromEntries(KB_COUNTRIES.slice(1));
+
+/** <option> markup for a country <select data-ls="…">, `sel` the selected code. */
+function kbCountryOpts(sel) {
+  return KB_COUNTRIES.map(([c, n]) =>
+    `<option value="${kbEsc(c)}" ${c === sel ? "selected" : ""}>${kbEsc(n)}</option>`
+  ).join("");
+}
+
+/* ── Minimal markdown → HTML (for About boxes) ─────────────────────────────── */
+/* Supports #/##/### headings, **bold**, *italic*, [text](url), - bullet lists,
+ * and blank-line-separated paragraphs. Escapes HTML (including quotes, so the
+ * link href attribute can't be broken out of) first, and only linkifies
+ * http(s)/mailto/relative URLs — anything else (javascript:, data:, …) is left
+ * as plain text. */
+function markdown(md) {
+  if (!md) return '';
+  const safeUrl = u => /^(https?:|mailto:)/i.test(u) || !/^[a-z][a-z0-9+.-]*:/i.test(u);
+  let html = md
+    .replace(/&(?!#?\w+;)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/^#{3}\s+(.+)$/gm, '<h3>$1</h3>')
+    .replace(/^#{2}\s+(.+)$/gm, '<h2>$1</h2>')
+    .replace(/^#{1}\s+(.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([\s\S]+?)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, text, url) =>
+      safeUrl(url.trim()) ? `<a href="${url.trim()}" target="_blank" rel="noopener">${text}</a>` : m);
+  html = html.replace(/((?:^- .+\n?)+)/gm, m => '<ul>' + m.replace(/^- (.+)$/gm, '<li>$1</li>') + '</ul>');
+  html = html.split(/\n{2,}/).map(b => b.trim()).filter(Boolean)
+             .map(b => /^<[hul]/.test(b) ? b : `<p>${b.replace(/\n/g, '<br>')}</p>`).join('\n');
+  return html;
+}
+
+/* ── Brand & icon SVGs ─────────────────────────────────────────────────────── */
+const KB_BRAND_SVG = `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true" style="width:100%;height:100%;display:block"><rect x="3" y="14" width="29" height="29" rx="8" fill="var(--accent)"/><rect x="16" y="3" width="29" height="29" rx="8" fill="none" stroke="var(--accent)" stroke-width="4"/></svg>`;
+const KB_FOOTER_MARK_SVG = `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="1" y="5" width="11" height="11" rx="3" fill="var(--accent)"/><rect x="6" y="1" width="11" height="11" rx="3" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`;
+
+const KB_ICON = {
+  moon:  `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`,
+  sun:   `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`,
+  about: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`,
+  sync:  `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
+  warn:  `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>`,
+  info:  `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`,
+  menu:  `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>`,
+  addNotes:    `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 12v6M9 15h6"/></svg>`,
+  exportNotes: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 15h5M12 12l3 3-3 3"/></svg>`,
+  dataCheck:   `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+  tabMove:     `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M12 3v5M9 5l3 3 3-3"/></svg>`,
+};
+
+/** Build a standalone element from an inline SVG string in KB_ICON (whose
+ *  markup is otherwise only usable via innerHTML on an existing element). */
+function iconEl(svgMarkup) {
+  const wrap = el('span');
+  wrap.innerHTML = svgMarkup;
+  return wrap.firstElementChild || wrap;
+}
+
+/* ── Theme (light/dark) ────────────────────────────────────────────────────── */
+/* The pre-paint inline snippet in each app reads this same key before first
+ * paint; here we read/write it on toggle. */
+const KB_THEME_KEY = 'kb-theme';
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') ||
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+/** Repaint every theme button's icon to match the active theme. */
+function updateThemeIcon() {
+  const icon = currentTheme() === 'dark' ? KB_ICON.sun : KB_ICON.moon;
+  $$('.kb-theme-btn').forEach(b => { b.innerHTML = icon; });
+}
+
+function toggleTheme() {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem(KB_THEME_KEY, next); } catch (e) {}
+  updateThemeIcon();
+}
+
+/** A ready-wired theme toggle icon button. */
+function makeThemeButton() {
+  const btn = el('button', { type: 'button', className: 'kb-iconbtn kb-theme-btn',
+    title: 'Toggle light/dark', 'aria-label': 'Toggle dark mode', onClick: toggleTheme });
+  btn.innerHTML = currentTheme() === 'dark' ? KB_ICON.sun : KB_ICON.moon;
+  return btn;
+}
+
+/** A ready-wired "About" icon button. */
+function makeAboutButton(onClick) {
+  const btn = el('button', { type: 'button', className: 'kb-iconbtn', 'aria-label': 'About', onClick });
+  btn.innerHTML = KB_ICON.about;
+  return btn;
+}
+
+/* ── Modals ────────────────────────────────────────────────────────────────── */
+/* Generic dialog. Returns a Promise resolving to the clicked button's `value`
+ * (or `dismissValue` when closed via backdrop / Escape).
+ *
+ * opts = {
+ *   title?, icon?,                         // header (omitted entirely if no title)
+ *   bodyHTML? | bodyNode?,                 // body content
+ *   buttons: [{ label, value, variant?, autofocus? }],
+ *   dismissable = true, dismissValue = undefined
+ * } */
+function kbModal(opts) {
+  return new Promise(resolve => {
+    const overlay = el('div', { className: 'kb-overlay' });
+    const modal = el('div', { className: 'kb-modal' });
+
+    if (opts.title != null) {
+      const hdr = el('div', { className: 'kb-modal__hdr' });
+      if (opts.icon) { const w = el('span'); w.innerHTML = opts.icon; hdr.appendChild(w.firstElementChild || w); }
+      hdr.appendChild(el('span', null, opts.title));
+      modal.appendChild(hdr);
+    }
+
+    const body = opts.bodyNode || el('div', { className: 'kb-modal__body' });
+    if (opts.bodyHTML != null) body.innerHTML = opts.bodyHTML;
+    modal.appendChild(body);
+
+    const footer = el('div', { className: 'kb-modal__footer' });
+    let focusEl = null;
+    (opts.buttons || []).forEach(b => {
+      const btn = el('button', { className: 'kb-btn ' + (b.variant || 'kb-btn--primary') }, b.label);
+      btn.addEventListener('click', () => { cleanup(); resolve(b.value); });
+      if (b.autofocus) focusEl = btn;
+      footer.appendChild(btn);
+    });
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+
+    const dismissable = opts.dismissable !== false;
+    function cleanup() { overlay.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape' && dismissable) { cleanup(); resolve(opts.dismissValue); } }
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay && dismissable) { cleanup(); resolve(opts.dismissValue); }
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    (focusEl || footer.querySelector('button') || modal).focus();
+  });
+}
+
+/* kbConfirm/kbAlert treat `message` as PLAIN TEXT (escaped; newlines become
+ * <br>). Callers with genuinely rich content should pass a bodyNode to
+ * kbModal, or route config markdown through kbAbout. */
+function kbMessageHTML(message) {
+  return message == null ? message : kbEsc(message).replace(/\n/g, '<br>');
+}
+
+/** Confirm dialog → resolves true (confirm) / false (cancel or dismiss). */
+function kbConfirm({ title, message, confirmLabel, cancelLabel, icon } = {}) {
+  return kbModal({
+    title, icon: title != null ? (icon || KB_ICON.warn) : undefined,
+    bodyHTML: kbMessageHTML(message), dismissValue: false,
+    buttons: [
+      { label: cancelLabel || 'Cancel', value: false, variant: 'kb-btn--ghost', autofocus: true },
+      { label: confirmLabel || 'OK', value: true, variant: 'kb-btn--primary' },
+    ],
+  });
+}
+
+/** Alert / notice dialog → resolves once dismissed. */
+function kbAlert({ title, message, okLabel, icon } = {}) {
+  return kbModal({
+    title, icon: title != null ? (icon || KB_ICON.info) : undefined,
+    bodyHTML: kbMessageHTML(message),
+    buttons: [{ label: okLabel || 'OK', value: true, variant: 'kb-btn--primary', autofocus: true }],
+  });
+}
+
+/** About dialog (renders markdown content). */
+function kbAbout({ title, contentMD, closeLabel } = {}) {
+  return kbModal({
+    title: title || 'About',
+    bodyHTML: markdown(contentMD || ''),
+    buttons: [{ label: closeLabel || 'Close', value: true, variant: 'kb-btn--primary', autofocus: true }],
+  });
+}
+
+/* ── Config loading ────────────────────────────────────────────────────────── */
+/** Fetch + parse a YAML config file, validating the result.
+ *  Throws on HTTP error, and on a successful fetch that returns the WRONG bytes:
+ *  on a static host a missing config.yml (or an SPA fallback, or a stale cached
+ *  page) is served as an HTML page with a 200, so jsyaml.load() returns a plain
+ *  string instead of the config object. Without this guard CFG.localisation is
+ *  undefined, each app's adapter silently early-returns, and the app renders its
+ *  chrome with every label as a raw key and an empty language dropdown — with no
+ *  error at all. Fail loudly and actionably instead. */
+async function loadYamlConfig(url = 'config.yml', { requireLocalisation = true } = {}) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const cfg = jsyaml.load(await res.text());
+  if (!cfg || typeof cfg !== 'object' || (requireLocalisation && !cfg.localisation)) {
+    throw new Error(
+      'config.yml loaded but did not parse to a valid configuration. The server ' +
+      'most likely returned an HTML page (a 404 or single-page-app fallback, or a ' +
+      'stale cached page) instead of the YAML file. Confirm config.yml is deployed ' +
+      'next to index.html and served as plain text (not rewritten to index.html).'
+    );
+  }
+  return cfg;
+}
+
+/** Org-wide branding keys that live in the root config.yml and cascade down
+ *  to every app, so an office admin sets them once instead of in every app's
+ *  config.yml. An app overrides a key by giving it a non-blank value in its
+ *  own config.yml. */
+const KB_SHARED_CONFIG_KEYS = ['organization', 'logo', 'logo-maxwidth', 'tagline', 'accent-colour', 'theme'];
+
+let _kbSharedConfigPromise = null;
+/** Fetch the root config.yml once and cache it. Tolerant of failure — an app
+ *  deployed standalone (outside the bizdocs suite, with no root config.yml
+ *  reachable at ../config.yml) just falls back to its own config.yml values. */
+function loadSharedConfig() {
+  if (!_kbSharedConfigPromise) {
+    _kbSharedConfigPromise = loadYamlConfig('../config.yml', { requireLocalisation: false }).catch(() => ({}));
+  }
+  return _kbSharedConfigPromise;
+}
+
+/** Fill in KB_SHARED_CONFIG_KEYS on `cfg` from the root config.yml wherever
+ *  the app's own config.yml left them blank. Call after loadYamlConfig() and
+ *  before normalising localisation / applying the accent colour. */
+async function applySharedBranding(cfg) {
+  const shared = await loadSharedConfig();
+  KB_SHARED_CONFIG_KEYS.forEach(key => {
+    if (cfg[key] === undefined || cfg[key] === null || cfg[key] === '') cfg[key] = shared[key];
+  });
+  return cfg;
+}
+
+/** Load a CDN library declared in config.yml's `dependencies:` block (see
+ *  DESIGN.md / docs/dependencies.md) instead of hardcoding its <script> tag in
+ *  index.html. `dep` is `{ url, integrity? }`; omit integrity when pointing
+ *  at a local/vendored copy that won't match a CDN's SRI hash. Caches by
+ *  url so repeated calls for the same dependency reuse one <script> tag.
+ *  js-yaml itself can't go through this path — it's needed to fetch and
+ *  parse config.yml in the first place, so it stays hardcoded per app. */
+const _kbDepPromises = {};
+function loadDependency(dep) {
+  if (!dep || !dep.url) return Promise.reject(new Error('Missing dependency url in config.yml'));
+  if (_kbDepPromises[dep.url]) return _kbDepPromises[dep.url];
+  const p = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = dep.url;
+    if (dep.integrity) { script.integrity = dep.integrity; script.crossOrigin = 'anonymous'; }
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load dependency: ' + dep.url));
+    document.head.appendChild(script);
+  });
+  _kbDepPromises[dep.url] = p;
+  return p;
+}
+
+/** Apply a config's accent-colour to the --accent token (no-op if unset; the
+ *  token already has a sensible default in style.css). */
+function applyAccent(cfg) {
+  if (cfg && cfg['accent-colour']) {
+    document.documentElement.style.setProperty('--accent', cfg['accent-colour']);
+  }
+}
+
+/* ── mdcms theme application ─────────────────────────────────────────────
+ * Suite-wide theming: config.yml's `theme:` key (cascades from the root
+ * config.yml the same way accent-colour/organization/logo do) names a
+ * vendored mdcms theme file — e.g. `theme: assets/themes/nord.yaml` — a
+ * copy dropped by hand into the shared assets/themes/ folder (see
+ * CLAUDE.md's "Suite-wide theming"). Same-origin, so this needs no CSP
+ * change anywhere: it's fetched and parsed with the same js-yaml every app
+ * already loads, exactly like config.yml itself. Missing/broken theme
+ * files degrade silently to the plain default look — a theme is cosmetic,
+ * never something that should be able to break an app.
+ *
+ * This is the same mdcms-palette → bizdocs-CSS-vars mapping themeselector
+ * uses to preview a theme in an iframe (see themeselector/index.html's
+ * comments for the full rationale of each design choice below), factored
+ * out here so both a real theme application (this) and a preview (an
+ * iframe's document) share one implementation instead of drifting apart.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** Hex or rgb()/rgba() → [r,g,b] (0–255), or null. Themes routinely give
+ *  ink / on-surface-* as rgba() (that's the whole point of a semi-transparent
+ *  on-surface tint) — kbHexRgb alone only understands hex. */
+function kbParseColorRgb(v) {
+  if (!v) return null;
+  const hex = kbHexRgb(v);
+  if (hex) return hex;
+  const m = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*[\d.]+\s*)?\)$/i.exec(String(v).trim());
+  return m ? [Math.round(+m[1]), Math.round(+m[2]), Math.round(+m[3])] : null;
+}
+function kbRelLuminance(hex) {
+  const rgb = kbParseColorRgb(hex);
+  if (!rgb) return 1;
+  const [r, g, b] = rgb.map(c => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function kbOnColorFor(hex) { return kbRelLuminance(hex) > 0.45 ? '#14181E' : '#FFFFFF'; }
+function kbColorsClash(a, b) {
+  const ra = kbParseColorRgb(a), rb = kbParseColorRgb(b);
+  if (!ra || !rb) return false;
+  return Math.abs(ra[0] - rb[0]) + Math.abs(ra[1] - rb[1]) + Math.abs(ra[2] - rb[2]) < 20;
+}
+// Computed in JS, not CSS color-mix() (only ~2023+ browser support; matches
+// color-mix(in srgb, hexA pct%, hexB) exactly — its default "in srgb" is
+// just a per-channel weighted average of the raw gamma-encoded values).
+function kbMixHex(hexA, pct, hexB) {
+  const a = kbParseColorRgb(hexA), b = kbParseColorRgb(hexB);
+  if (!a) return hexB || hexA;
+  if (!b) return hexA;
+  const t = pct / 100;
+  const ch = i => Math.round(a[i] * t + b[i] * (1 - t)).toString(16).padStart(2, '0');
+  return `#${ch(0)}${ch(1)}${ch(2)}`;
+}
+
+// Some mdcms themes set on-surface-* to var(--font-colour)/var(--nav-link-
+// colour) etc. instead of a literal colour — mdcms's own shorthand for
+// "whatever that other palette field resolves to" (its renderer defines
+// these itself). Resolve the reference back through the same palette
+// object mdcms would've pulled it from, chasing further var()s too
+// (on-surface-title: var(--nav-link-colour) with on-surface: var(--font-
+// colour) is a real two-level chain in the wild).
+const KB_MDCMS_VAR_TO_PALETTE_FIELD = {
+  '--accent': 'primary', '--bg-main': 'page', '--bg-nav': 'surface',
+  '--font-colour': 'ink', '--font-colour-muted': 'ink-muted', '--heading-colour': 'heading',
+  '--nav-link-colour': 'on-surface', '--nav-link-active-colour': 'on-surface-active',
+  '--nav-section-heading-colour': 'on-surface-heading', '--nav-sitename-colour': 'on-surface-title',
+  '--nav-description-colour': 'on-surface-note', '--nav-toggle-colour': 'on-surface-icon',
+  '--divider': 'divider',
+};
+function kbResolveMdcmsVar(value, m, depth) {
+  if (depth === undefined) depth = 0;
+  if (!value || depth > 5) return null;
+  const match = /^var\(\s*(--[\w-]+)\s*\)$/i.exec(String(value).trim());
+  if (!match) return value;
+  const field = KB_MDCMS_VAR_TO_PALETTE_FIELD[match[1]];
+  if (!field || !m[field]) return null;
+  return kbResolveMdcmsVar(m[field], m, depth + 1);
+}
+// Falls back to an auto-contrast colour (not the raw fallback) whenever a
+// theme's key colour matches its surface colour with no resolvable
+// on-surface-* override — many mdcms themes deliberately set primary ==
+// surface ("a single bold colour drives both the nav and the accent"),
+// which can make an accent-coloured mark/text drawn on --bg disappear.
+function kbHeaderToken(themeVal, keyColor, surfaceColor, fallbackHex, m) {
+  const resolved = kbResolveMdcmsVar(themeVal, m);
+  if (resolved) return resolved;
+  if (keyColor && surfaceColor && kbColorsClash(keyColor, surfaceColor)) return kbOnColorFor(surfaceColor);
+  return fallbackHex;
+}
+
+// mdcms `page` (content bg, usually white)   -> bizdocs --surface (cards/inputs)
+// mdcms `surface` (nav bg, sometimes bold)    -> bizdocs --bg (page backdrop)
+// bizdocs has no separate nav-surface concept, so a bold mdcms nav colour
+// becomes the whole app's backdrop behind white cards.
+function kbPaletteModeVars(mode, m, sem) {
+  if (!m || !m.primary) return '';
+  const rgb = (kbParseColorRgb(m.primary) || [0, 0, 0]).join(',');
+  const ink = m.ink, inkMuted = m['ink-muted'];
+  const surface = m.page, bg = m.surface;
+  const hoverBase = mode === 'dark' ? '#FFFFFF' : '#000000';
+  const lines = [
+    `--accent:${m.primary}`,
+    `--accent-rgb:${rgb}`,
+    `--on-accent:${kbOnColorFor(m.primary)}`,
+    `--accent-hover:${kbMixHex(m.primary, 85, hoverBase)}`,
+    `--accent-soft:${kbMixHex(m.primary, 12, surface)}`,
+    `--accent-border:${kbMixHex(m.primary, 35, surface)}`,
+    `--bg:${bg}`,
+    `--surface:${surface}`,
+    // Mixed toward ink, NOT bg: these tint disabled/readonly form fields and
+    // sit inside a white/page-toned card. Deriving them from bg instead
+    // would drag in the nav colour's boldness even where it has nothing to
+    // do with how a text field should read.
+    `--surface-2:${kbMixHex(surface, 97, ink)}`,
+    `--surface-3:${kbMixHex(surface, 92, ink)}`,
+    `--border:${kbMixHex(surface, 88, ink)}`,
+    `--border-strong:${kbMixHex(surface, 75, ink)}`,
+    `--text:${ink}`,
+    `--text-soft:${kbMixHex(ink, 55, inkMuted)}`,
+    `--text-muted:${inkMuted}`,
+    `--placeholder:${kbMixHex(inkMuted, 60, surface)}`,
+    // Header/toolbar/footer chrome sits directly on --bg, not on a card —
+    // needs its own contrast pair (mdcms's on-surface-* group is exactly
+    // this). The language select and size/theme/about icon buttons do NOT
+    // use these — they have their own var(--surface) box (see kbBuildThemeCss).
+    `--header-text:${kbHeaderToken(m['on-surface-title'], ink, bg, ink, m)}`,
+    `--header-muted:${kbHeaderToken(m['on-surface-note'], inkMuted, bg, inkMuted, m)}`,
+    `--header-link:${kbHeaderToken(m['on-surface'], ink, bg, ink, m)}`,
+    `--header-accent:${kbHeaderToken(m['on-surface-active'], m.primary, bg, m.primary, m)}`,
+    `--header-icon:${kbHeaderToken(m['on-surface-icon'], inkMuted, bg, inkMuted, m)}`,
+  ];
+  if (sem) {
+    [['danger', 'error'], ['warning', 'warning'], ['success', 'success'], ['info', 'info']].forEach(([tok, key]) => {
+      if (!sem[key]) return;
+      lines.push(`--${tok}:${sem[key]}`);
+      lines.push(`--${tok}-soft:${kbMixHex(sem[key], 12, surface)}`);
+      lines.push(`--${tok}-border:${kbMixHex(sem[key], 35, surface)}`);
+    });
+  }
+  return lines.join('; ');
+}
+
+// "provider:Font Name:weight", "Font Name:weight" (bunny implied), or
+// "system-ui:weight" — a real theme application only ever tries the family
+// by name (no @font-face is fetched, unlike themeselector's preview, to
+// keep this feature at zero new CSP/network dependency for every app) —
+// shows correctly if that font happens to already be installed locally,
+// otherwise gracefully falls back to var(--font-sans).
+function kbParseFontName(spec) {
+  if (!spec) return null;
+  const parts = String(spec).split(':');
+  if (parts.length >= 3) return parts[1].trim();
+  if (parts.length === 2) return parts[0].trim() === 'system-ui' ? null : parts[0].trim();
+  return null;
+}
+
+function kbBuildThemeCss(theme) {
+  if (!theme || !theme.palette) return '';
+  const light = theme.palette.light, dark = theme.palette.dark;
+  const semLight = theme['colours-semantic'] || null;
+  const semDark = theme['colours-semantic-dark'] || semLight;
+  let css = '';
+  // Mirrors style.css's own cascade, where light is the UNCONDITIONED base
+  // (plain :root {}) and dark applies via prefers-color-scheme OR an
+  // explicit data-theme="dark". A rule scoped only to
+  // [data-theme="light"]/[data-theme="dark"] never matches until the user
+  // has manually toggled the theme button at least once (that's the only
+  // thing that ever sets the attribute) — on a first visit, in either OS
+  // mode, that attribute is simply absent.
+  if (light) css += `:root { ${kbPaletteModeVars('light', light, semLight)}; }\n`;
+  if (dark) {
+    const darkVars = kbPaletteModeVars('dark', dark, semDark);
+    css += `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { ${darkVars}; } }\n`;
+    css += `:root[data-theme="dark"] { ${darkVars}; }\n`;
+  }
+  const bodyFont = kbParseFontName(theme['font-body']);
+  const headingFont = kbParseFontName(theme['font-heading']) || bodyFont;
+  if (bodyFont) css += `body { font-family: "${bodyFont}", var(--font-sans); }\n`;
+  if (headingFont) css += `.kb-doctitle h1, .kb-card__title, .kb-brand .org, .kb-modal__hdr { font-family: "${headingFont}", var(--font-sans); }\n`;
+  css += `.kb-brand .org { color: var(--header-text); }
+.kb-brand .org small { color: var(--header-muted); }
+.kb-doctitle h1 { color: var(--header-text); }
+.kb-doctitle .meta { color: var(--header-muted); }
+.kb-brand .logo svg { --accent: var(--header-accent); }
+.kb-sz-label, .kb-footer, .kb-footer a, .kb-footer button, .kb-mark { color: var(--header-muted); }
+.kb-footer .kb-mark svg { --accent: var(--header-accent); }
+.kb-btn--primary { border-color: var(--on-accent); }
+`;
+  return css;
+}
+
+function kbFrameCurrentMode(doc) {
+  const attr = doc.documentElement.getAttribute('data-theme');
+  if (attr === 'dark' || attr === 'light') return attr;
+  try { return doc.defaultView.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  catch (e) { return 'light'; }
+}
+
+// Every app's boot calls applyAccent(), which sets --accent via INLINE
+// style on <html> — that always wins over any stylesheet rule regardless
+// of source order or specificity, so a plain <style> override can never
+// change --accent itself. Write it the same way applyAccent() does, so
+// ours is simply the more-recent write to the same inline declaration.
+// Keyed per-document (a WeakMap) so themeselector's preview iframe — whose
+// document object changes every time the previewed app is switched — can
+// share this without any manual "reset on navigate" bookkeeping.
+const _kbThemeOriginalAccent = new WeakMap();
+function kbSyncThemeAccent(theme, doc) {
+  if (!_kbThemeOriginalAccent.has(doc)) {
+    _kbThemeOriginalAccent.set(doc, doc.documentElement.style.getPropertyValue('--accent') || '');
+  }
+  const palette = theme && theme.palette;
+  const m = palette && palette[kbFrameCurrentMode(doc)];
+  if (m && m.primary) { doc.documentElement.style.setProperty('--accent', m.primary); return; }
+  const original = _kbThemeOriginalAccent.get(doc);
+  if (original) doc.documentElement.style.setProperty('--accent', original);
+  else doc.documentElement.style.removeProperty('--accent');
+}
+
+/** Inject `theme`'s computed CSS into `doc` (a <style id="mdcms-theme-
+ *  override"> in its <head>) and sync --accent to match. Called for a real,
+ *  persistent theme application (doc = document) and by themeselector for
+ *  its preview iframe (doc = the iframe's contentDocument) alike. */
+function kbApplyThemeToDoc(theme, doc) {
+  let styleEl = doc.getElementById('mdcms-theme-override');
+  if (!styleEl) { styleEl = doc.createElement('style'); styleEl.id = 'mdcms-theme-override'; doc.head.appendChild(styleEl); }
+  styleEl.textContent = kbBuildThemeCss(theme);
+  kbSyncThemeAccent(theme, doc);
+}
+
+/** Fetch+apply a config's `theme:` key (a vendored mdcms theme file path,
+ *  e.g. "assets/themes/nord.yaml") to the current document. pathPrefix is
+ *  '' for the root landing page, '../' for every app in a subfolder —
+ *  matching how ../assets/style.css is referenced (theme.yml lives in the
+ *  same shared assets/ folder). No-op if unset; tolerant of a missing/
+ *  broken file — a theme is cosmetic and must never be able to break an
+ *  app's actual function. */
+async function applyMdcmsTheme(cfg, pathPrefix) {
+  if (!cfg || !cfg.theme) return;
+  try {
+    const res = await fetch((pathPrefix || '') + cfg.theme);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const theme = jsyaml.load(await res.text());
+    kbApplyThemeToDoc(theme, document);
+  } catch (e) {
+    console.error('applyMdcmsTheme: failed to load theme from config.yml', e);
+  }
+}
+
+/** Parse a #rgb / #rrggbb hex colour to [r, g, b] (0–255), or null if it isn't
+ *  one. PDF builders should fall back to their default accent on null rather
+ *  than emit NaN colours. */
+function kbHexRgb(hex) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return null;
+  let x = m[1];
+  if (x.length === 3) x = x[0] + x[0] + x[1] + x[1] + x[2] + x[2];
+  const n = parseInt(x, 16);
+  return [n >> 16, (n >> 8) & 0xff, n & 0xff];
+}
+
+/** Sanitise a fragment (e.g. a person/org name) for use in a download
+ *  filename: strip anything outside [a-zA-Z0-9_-]. */
+function kbSafeFilename(s) {
+  return String(s || '').replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+}
+
+/* ── File download / upload ────────────────────────────────────────────────── */
+/** Trigger a browser download of `data` (a string, or an existing Blob) as
+ *  `filename`. Pure client-side — there is no server to upload to. */
+function kbDownloadFile(data, filename, mime) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Open a native file picker restricted to `accept` and resolve with the
+ *  picked file's text content (or null if the user cancels). A `window`
+ *  focus fires when the OS file dialog closes either way, so a cancelled
+ *  pick (no `change` event) is detected shortly after focus returns. */
+function kbReadFileAsText(accept) {
+  return new Promise(resolve => {
+    const input = el('input', { type: 'file', accept, style: { display: 'none' } });
+    let settled = false;
+    const finish = value => { if (settled) return; settled = true; input.remove(); resolve(value); };
+    input.addEventListener('change', () => {
+      const file = input.files && input.files[0];
+      if (!file) { finish(null); return; }
+      const reader = new FileReader();
+      reader.onload = () => finish(String(reader.result || ''));
+      reader.onerror = () => finish(null);
+      reader.readAsText(file);
+    });
+    window.addEventListener('focus', function onFocus() {
+      window.removeEventListener('focus', onFocus);
+      setTimeout(() => finish(null), 300);
+    }, { once: true });
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+/* ── Shared profile & per-app document records ─────────────────────────────── */
+/* A user's own identity (name/address/bank details/…) and the documents
+ * they've generated (invoices, expense reports, timesheets) are portable
+ * across browsers/machines via the dashboard app's export/import — see
+ * dashboard/index.html. These two localStorage keys are read/written from
+ * multiple apps, so they live here rather than in any one app. */
+const KB_PROFILE_KEY = 'kb-profile-v1';
+
+/** Read the shared profile, tolerant of it being missing or corrupt
+ *  (returns {} rather than throwing) — an app must never fail to boot
+ *  just because there's no profile saved yet. */
+function loadSharedProfile() {
+  try {
+    const raw = localStorage.getItem(KB_PROFILE_KEY);
+    const p = raw ? JSON.parse(raw) : null;
+    return (p && typeof p === 'object') ? p : {};
+  } catch (e) { return {}; }
+}
+
+function saveSharedProfile(profile) {
+  localStorage.setItem(KB_PROFILE_KEY, JSON.stringify(profile || {}));
+}
+
+/** Append `record` to the JSON array stored at `key` (created fresh if
+ *  missing/corrupt). Used by invoice/reimburse/timesheet to log a summary
+ *  of each document they generate, and read back by the dashboard app. */
+function kbPushRecord(key, record) {
+  let list;
+  try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
+  if (!Array.isArray(list)) list = [];
+  list.push(record);
+  localStorage.setItem(key, JSON.stringify(list));
+}
+
+/* ── Nav menu (apps + links dropdown, shared across every app's toolbar) ─────── */
+/** Config booleans in this repo are written as yes/no (see `logo: yes|no`) — this
+ *  reads that same convention for `hide-from-navselector`, real booleans included. */
+function kbTruthy(v) {
+  if (v === true) return true;
+  if (typeof v === 'string') return /^(yes|true)$/i.test(v.trim());
+  return false;
+}
+
+/** Filter a root config's `apps:`/`links:` lists down to the entries the nav
+ *  dropdown should show (drops any with `hide-from-navselector: yes|true`). */
+function kbFilterNavItems(cfg) {
+  const visible = list => (Array.isArray(list) ? list : []).filter(item => !kbTruthy(item && item['hide-from-navselector']));
+  return { apps: visible(cfg && cfg.apps), links: visible(cfg && cfg.links) };
+}
+
+/** Fetch the root config (relative to the calling app, e.g. '../config.yml')
+ *  purely for its apps/links nav lists. Fails soft to empty lists — the nav
+ *  menu is optional chrome and must never block an app's own boot. */
+async function loadNavItems(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { apps: [], links: [] };
+    const cfg = jsyaml.load(await res.text());
+    if (!cfg || typeof cfg !== 'object') return { apps: [], links: [] };
+    return kbFilterNavItems(cfg);
+  } catch (e) {
+    return { apps: [], links: [] };
+  }
+}
+
+/** Build the toolbar's far-left nav dropdown from { apps, links } (see
+ *  loadNavItems). Hides itself (returns an empty, display:none wrapper) when
+ *  there is nothing to show, so callers can always append it unconditionally. */
+function makeNavMenu(navItems) {
+  const apps  = (navItems && navItems.apps)  || [];
+  const links = (navItems && navItems.links) || [];
+  const wrap = el('div', { className: 'kb-navmenu' });
+  if (!apps.length && !links.length) { wrap.style.display = 'none'; return wrap; }
+
+  const btn = el('button', {
+    type: 'button', className: 'kb-iconbtn kb-navmenu__btn',
+    'aria-haspopup': 'true', 'aria-expanded': 'false', 'aria-label': 'Apps',
+  });
+  btn.innerHTML = KB_ICON.menu;
+
+  const menu = el('div', { className: 'kb-navmenu__menu', role: 'menu' });
+  menu.hidden = true;
+
+  const addItems = (list, external) => {
+    list.forEach(item => {
+      const a = el('a', { className: 'kb-navmenu__item', role: 'menuitem', href: item.href }, item.name || item.href);
+      if (external) { a.target = '_blank'; a.rel = 'noopener'; }
+      menu.appendChild(a);
+    });
+  };
+  addItems(apps, false);
+  if (apps.length && links.length) menu.appendChild(el('div', { className: 'kb-navmenu__sep' }));
+  addItems(links, true);
+
+  function close() {
+    menu.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', onDocClick, true);
+    document.removeEventListener('keydown', onKey);
+  }
+  function open() {
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('click', onDocClick, true);
+    document.addEventListener('keydown', onKey);
+  }
+  function onDocClick(e) { if (!wrap.contains(e.target)) close(); }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  btn.addEventListener('click', () => { menu.hidden ? open() : close(); });
+
+  wrap.append(btn, menu);
+  return wrap;
+}
+
+/* ── Numbers & dates ───────────────────────────────────────────────────────── */
+/** Format a number with thousands separators and 2 decimals; returns `fallback`
+ *  for non-numeric input. */
+function formatAmount(n, { fallback = '0.00', locale = 'en-US' } = {}) {
+  if (n === '' || n == null || isNaN(+n)) return fallback;
+  return (+n).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Parse a possibly comma-grouped numeric string to a number (0 if invalid). */
+function parseAmount(s) { return parseFloat(String(s ?? 0).replace(/,/g, '')) || 0; }
+
+const MONTHS_FULL  = ['January','February','March','April','May','June',
+                      'July','August','September','October','November','December'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun',
+                      'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+/** Format an ISO date (YYYY-MM-DD) with a token pattern:
+ *  d/dd day · M/MM/MMM/MMMM month · YY/YYYY year. */
+function formatDate(iso, pattern = 'd MMMM YYYY', full = MONTHS_FULL, short = MONTHS_SHORT) {
+  if (!iso) return '';
+  const [yr, mo, dy] = String(iso).split('-').map(Number);
+  return pattern.replace(/YYYY|YY|MMMM|MMM|MM|M|dd|d/g, tok => {
+    switch (tok) {
+      case 'YYYY': return yr;
+      case 'YY':   return String(yr).slice(-2);
+      case 'MMMM': return full[mo - 1];
+      case 'MMM':  return short[mo - 1];
+      case 'MM':   return String(mo).padStart(2, '0');
+      case 'M':    return mo;
+      case 'dd':   return String(dy).padStart(2, '0');
+      case 'd':    return dy;
+      default:     return tok;
+    }
+  });
+}
+
+/* ── Font scale (shared text-size control) ─────────────────────────────────── */
+/* Every app drives the same --font-scale token (defined in style.css) and
+ * persists it under one key, so the A−/A+ control behaves identically. */
+const KB_SCALE_KEY = 'kb-font-scale';
+const KB_SCALE_MIN = 0.5, KB_SCALE_MAX = 1.5, KB_SCALE_STEP = 0.1;
+
+function currentScale() {
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-scale'));
+  return isNaN(v) ? 1 : v;
+}
+function applyScaleLabels() {
+  const pct = Math.round(currentScale() * 100) + '%';
+  $$('.kb-sz-label').forEach(l => { l.textContent = pct; });
+}
+/** Set the global font scale (clamped, 1-decimal), persist, and sync labels. */
+function setFontScale(scale) {
+  const s = Math.round(Math.max(KB_SCALE_MIN, Math.min(KB_SCALE_MAX, scale)) * 10) / 10;
+  document.documentElement.style.setProperty('--font-scale', String(s));
+  try { localStorage.setItem(KB_SCALE_KEY, String(s)); } catch (e) {}
+  applyScaleLabels();
+  return s;
+}
+function bumpFontScale(dir) { return setFontScale(currentScale() + dir * KB_SCALE_STEP); }
+/** Apply the persisted font scale + refresh labels (call once at startup).
+ *  The stored value is re-clamped so a stale/corrupt entry can't apply an
+ *  arbitrary CSS value. */
+function initFontScale() {
+  const v = parseFloat(localStorage.getItem(KB_SCALE_KEY));
+  if (!isNaN(v)) {
+    const s = Math.round(Math.max(KB_SCALE_MIN, Math.min(KB_SCALE_MAX, v)) * 10) / 10;
+    document.documentElement.style.setProperty('--font-scale', String(s));
+  }
+  applyScaleLabels();
+}
+/** Build an A− / A+ text-size segment plus its % label → { seg, label }. */
+function makeSizeControl() {
+  const seg = el('div', { className: 'kb-seg', role: 'group', 'aria-label': 'Text size' });
+  seg.append(
+    el('button', { type: 'button', 'aria-label': 'Smaller text', onClick: () => bumpFontScale(-1) }, 'A−'),
+    el('button', { type: 'button', 'aria-label': 'Larger text',  onClick: () => bumpFontScale(1)  }, 'A+')
+  );
+  const label = el('span', { className: 'kb-sz-label' }, Math.round(currentScale() * 100) + '%');
+  return { seg, label };
+}
+
+/* ── Localisation ──────────────────────────────────────────────────────────── */
+/* The apps share the same `localisation:` config shape. These helpers cover the
+ * common core; each app keeps its own data-specific mapping (invoice's
+ * product/uom/tax labels, timesheet's holiday/code rows, reimburse's about/fx). */
+
+/** From a `localisation:` block, build { table, languages, codes, defaultCode }
+ *  where table is a { key: { lang: value } } map of UI strings. */
+function buildLangTable(loc) {
+  const langs = Array.isArray(loc.languages) ? loc.languages : [];
+  const codes = langs.map(l => l.code);
+  const table = {};
+  codes.forEach(lc => {
+    const ui = (loc[lc] && loc[lc].ui) || {};
+    Object.keys(ui).forEach(k => { (table[k] = table[k] || {})[lc] = ui[k]; });
+  });
+  return { table, languages: langs, codes, defaultCode: loc['default-language'] || codes[0] || 'en' };
+}
+
+/** Look up a UI string with fallback (lang → defLang → key) and optional
+ *  {placeholder} interpolation. */
+function lookupString(table, key, lang, defLang, vars) {
+  const e = table && table[key];
+  let s = e ? (e[lang] ?? e[defLang] ?? key) : key;
+  if (vars) for (const k in vars) s = s.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]);
+  return s;
+}
+
+/** Resolve the PDF/output language: follow the UI when output-language is
+ *  "user-selected", otherwise use the config default. */
+function pdfOutputLang(cfg, uiLang) {
+  return cfg['output-language'] === 'user-selected' ? uiLang : (cfg['default-code'] || 'en');
+}
+
+/* ── Version marker ────────────────────────────────────────────────────────── */
+/* version.json is written to the repo root by .github/workflows/version-stamp.yml
+ * on each tag push — it doesn't exist between tags (e.g. on a fresh feature
+ * branch), so every consumer must tolerate a missing/unreadable file. */
+
+/** Fetch version.json ({version, commit, date}). path is relative to the
+ *  calling page (apps pass '../version.json', the root page 'version.json').
+ *  Returns null if the file is missing or malformed. */
+async function loadVersionInfo(path) {
+  try {
+    const res = await fetch(path, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || typeof data.version !== 'string') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/** Build the right-aligned "vX.Y.Z • abcdef1 / D Month YYYY" footer marker.
+ *  Returns null (nothing to append) when info is null. */
+function buildVersionMarker(info) {
+  if (!info) return null;
+  return el('span', { className: 'kb-footer__version' }, [
+    el('span', { className: 'kb-footer__version-line' }, `${info.version} • ${info.commit}`),
+    el('span', { className: 'kb-footer__version-line' }, info.date),
+  ]);
+}
+
+/** Replace the {repo} / {version-line} tokens in About markdown with the
+ *  release info from version.json (or a neutral placeholder before the
+ *  first tag is ever published). */
+function applyVersionTokens(md, info) {
+  const vars = {
+    repo: 'kbenestad/bizdocs',
+    'version-line': info ? `${info.version} • ${info.commit} • ${info.date}` : 'dev build',
+  };
+  let s = md || '';
+  for (const k in vars) s = s.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]);
+  return s;
+}
+
+/** Build the toolbar's far-right language <select>, or null when there's
+ *  nothing to choose (0 or 1 language) — callers should skip appending it
+ *  in that case, so the control disappears for single-language apps. */
+function makeLangSelect(languages, current, onChange) {
+  const langs = Array.isArray(languages) ? languages : [];
+  if (langs.length < 2) return null;
+  const sel = el('select', { className: 'kb-select', 'aria-label': 'Language' });
+  langs.forEach(l => {
+    const code = typeof l === 'object' ? l.code : l;
+    const name = (typeof l === 'object' && l.name) || code;
+    const o = el('option', { value: code }, name);
+    if (code === current) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => onChange(sel.value));
+  return sel;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+/** Build a tab strip + panels.
+ *  items: Array<{ label: string, content: Node }>
+ *  opts.defaultIndex: number (default 0) */
+const makeTabs = (items, opts = {}) => {
+  const defaultIndex = opts.defaultIndex ?? 0;
+
+  const tabIds   = items.map(() => uid());
+  const panelIds = items.map(() => uid());
+
+  const tablist = el('div', { className: 'kb-tablist', role: 'tablist' });
+  const tabs = items.map((item, i) => {
+    const btn = el('button', {
+      type: 'button',
+      role: 'tab',
+      id: tabIds[i],
+      'aria-selected': String(i === defaultIndex),
+      'aria-controls': panelIds[i],
+      className: 'kb-tab',
+    }, item.label);
+    tablist.appendChild(btn);
+    return btn;
+  });
+
+  const panels = items.map((item, i) => {
+    const panel = el('div', {
+      role: 'tabpanel',
+      id: panelIds[i],
+      'aria-labelledby': tabIds[i],
+      className: 'kb-tab-panel' + (i === defaultIndex ? ' is-active' : ''),
+    });
+    panel.appendChild(item.content);
+    return panel;
+  });
+
+  tabs.forEach((btn, i) => {
+    btn.addEventListener('click', () => {
+      if (btn.getAttribute('aria-selected') === 'true') return;
+      tabs.forEach((t, j) => {
+        t.setAttribute('aria-selected', String(j === i));
+        panels[j].classList.toggle('is-active', j === i);
+      });
+    });
+  });
+
+  const wrapper = el('div', {});
+  wrapper.appendChild(tablist);
+  panels.forEach(p => wrapper.appendChild(p));
+  return wrapper;
+};
+
+/* ── Accordion ─────────────────────────────────────────────────────────── */
+/** Build a single-open accordion with "Open all / Close all" control.
+ *  items: Array<{ label: string, content: Node }>
+ *  opts.openAllLabel:  string (required)
+ *  opts.closeAllLabel: string (required)
+ *  opts.defaultOpen:   number | null (default null) */
+const makeAccordion = (items, opts = {}) => {
+  const openAllLabel  = opts.openAllLabel;
+  const closeAllLabel = opts.closeAllLabel;
+  let openIndex = opts.defaultOpen ?? null;
+
+  const triggerIds = items.map(() => uid());
+  const panelIds   = items.map(() => uid());
+
+  const chevronSVG = () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', 'kb-accordion__chevron');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M6 9l6 6 6-6');
+    svg.appendChild(path);
+    return svg;
+  };
+
+  const openAllBtn = el('button', {
+    type: 'button',
+    className: 'kb-accordion__open-all',
+  }, openAllLabel);
+
+  const controls = el('div', { className: 'kb-accordion__controls' });
+  controls.appendChild(openAllBtn);
+
+  const isAllOpen = () => triggers.every(t => t.getAttribute('aria-expanded') === 'true');
+
+  const updateOpenAllLabel = () => {
+    openAllBtn.textContent = isAllOpen() ? closeAllLabel : openAllLabel;
+  };
+
+  const openItem = (i) => {
+    triggers[i].setAttribute('aria-expanded', 'true');
+    panelEls[i].classList.add('is-open');
+  };
+  const closeItem = (i) => {
+    triggers[i].setAttribute('aria-expanded', 'false');
+    panelEls[i].classList.remove('is-open');
+  };
+
+  const triggers = [];
+  const panelEls = [];
+  const itemEls  = items.map((item, i) => {
+    const open = i === openIndex;
+    const trigger = el('button', {
+      type: 'button',
+      className: 'kb-accordion__trigger',
+      id: triggerIds[i],
+      'aria-expanded': String(open),
+      'aria-controls': panelIds[i],
+    });
+    trigger.appendChild(document.createTextNode(item.label));
+    trigger.appendChild(chevronSVG());
+
+    const panel = el('div', {
+      className: 'kb-accordion__panel' + (open ? ' is-open' : ''),
+      id: panelIds[i],
+      'aria-labelledby': triggerIds[i],
+    });
+    panel.appendChild(item.content);
+
+    triggers.push(trigger);
+    panelEls.push(panel);
+
+    trigger.addEventListener('click', () => {
+      const expanded = trigger.getAttribute('aria-expanded') === 'true';
+      if (expanded) {
+        closeItem(i);
+        openIndex = null;
+      } else {
+        if (openIndex !== null && !isAllOpen()) closeItem(openIndex);
+        openItem(i);
+        openIndex = i;
+      }
+      updateOpenAllLabel();
+    });
+
+    const itemEl = el('div', { className: 'kb-accordion__item' });
+    itemEl.appendChild(trigger);
+    itemEl.appendChild(panel);
+    return itemEl;
+  });
+
+  openAllBtn.addEventListener('click', () => {
+    if (isAllOpen()) {
+      items.forEach((_, i) => closeItem(i));
+      openIndex = null;
+      openAllBtn.textContent = openAllLabel;
+    } else {
+      items.forEach((_, i) => openItem(i));
+      openIndex = null;
+      openAllBtn.textContent = closeAllLabel;
+    }
+  });
+
+  const accordion = el('div', { className: 'kb-accordion' });
+  accordion.appendChild(controls);
+  itemEls.forEach(itemEl => accordion.appendChild(itemEl));
+  return accordion;
+};
