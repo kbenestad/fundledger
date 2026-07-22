@@ -1,21 +1,56 @@
 # Features
 
-The running list of what `basis` provides, kept in sync with what's shipped
+The running list of what Fund Ledger provides, kept in sync with what's shipped
 on `main`.
 
-- Single-file app: chrome, boot, form, and PDF generation all inline in
-  `index.html` — no build step, no backend.
-- Shared bizdocs design system, bundled locally in `assets/` (`style.css`,
-  `ui.css`, `app.js`) and kept byte-identical via `sync.sh`.
-- Config-driven branding and localisation via `config.yml`, validated at boot
-  by `assertValidConfig()` so a missing/misserved config fails loudly instead
-  of silently rendering broken chrome.
-- Theme (light/dark) and font-scale controls, persisted to `localStorage`.
-- PDF output via `pdf-lib`.
-- Example form (`buildExampleCard()`) as a starting point for a real app form.
-- Tabs component demo (`buildTabsDemo()`) exercising `makeTabs()`/
-  `.kb-tablist` as a reference for building tabbed sections.
-- Suite-wide theming: `config.yml`'s `theme:` key names a vendored mdcms
-  theme file (`assets/themes/`) and `applyMdcmsTheme()` (`app.js`) applies it
-  at boot, overriding `accent-colour` and every other design token with the
-  theme's own palette. See CLAUDE.md's "Suite-wide theming".
+- **Ledger folder on disk** via the File System Access API (Chromium-only,
+  works over `file://`): folder picker, automatic folder skeleton + `config.yml`
+  seeding on first open, IndexedDB-persisted folder handle with silent
+  re-verify and a one-click Reconnect button.
+- **Six tabs**: Dashboard, Disbursement, Beneficiary, Donation, Donor,
+  Configuration. The Configuration tab can be hidden via `show-config-tab: no`
+  in `config.yml`.
+- **Dashboard**: fund name prominent, folder name in monospace; totals
+  (donations, disbursements, balance); record counts; recent-activity feed;
+  View Ledger button; Rebuild index; Close ledger.
+- **Immutable, append-only records**: beneficiaries/donors saved as
+  `B-NNNN.html` / `D-NNNN.html` person files; donations/disbursements saved
+  as dated `YYYY-MM-DD_<id>_<REF>/` folders containing `record.html` and any
+  generated documents.
+- **`Ledger.html`**: metadata-only index (embedded JSON) + human-readable
+  dashboard rewritten on every action; write order is record → changelog →
+  index; Rebuild-index action rescans all record folders.
+- **Append-only changelog** at `Changelog/changelog.jsonl`.
+- **Config-driven forms** from the ledger's `config.yml`: field types `text`,
+  `textarea`, `date` (past/future/range), `number` (ranges + currency
+  symbols), `drop-down` (inline values, `countries`, `months`, named lists,
+  searchable), `random-generator` (6-char reference), `reference`
+  (`all-records` / `same-id-only`), and `show_if` conditional visibility.
+- **Document generation**: free-form markdown templates in `config.yml` with
+  `{fieldname}` tokens, `{logo}`, and `{signatures}`; rendered to standalone
+  printable HTML files saved in the record folder; auto print dialog on save.
+- **Multi-language documents**: define languages (code, name, direction,
+  line-height, font) in `config.yml`; a language selector appears on money
+  forms when ≥2 languages are defined; per-language template strings and
+  signature labels supported.
+- **Signature blocks**: configurable count (1 or 2) and label text per block
+  (token-substituted); 1 signature = 40% width centred; 2 signatures = 40%
+  each at left and right.
+- **Reprint**: any saved money record can be reprinted from its record list.
+- **Embedded ID Card Reader mode** (per-tab `plaintext`/`idcardreader`
+  switch): verbatim `capture.js` from kbenestad/idcardreader; embedded UNHCR
+  Thailand card + passport-MRZ templates; capture → crop → OCR/QR/MRZ
+  extraction → review/conflict resolution → `from_id` mapping onto the form;
+  cardholder photo and card scans embedded base64 in the person file.
+- **Person list with edit**: beneficiary/donor lists collapsed in an accordion;
+  display-ID column; Edit button loads the existing record for update.
+- **Configuration tab accordion**: fund & currency, languages, entry modes,
+  per-block field editors, template + signature editors (with "Available
+  tokens" modal), drop-down lists, mdcms theme block, raw YAML editor.
+  Template and signature-label editors show per-language textareas when
+  multiple languages are defined, updating live as languages are added.
+- **Shared bizdocs design system** bundled in `app/assets/` (`style.css`,
+  `ui.css`, `app.js`), kept byte-identical to bizdocs via `sync.sh`.
+- **Theme and font-scale controls**, persisted to `localStorage`.
+- **Inline boot config** near the top of `index.html` (branding + all UI
+  strings) — works over `file://` with no server required.

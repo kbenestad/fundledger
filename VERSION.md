@@ -1,3 +1,3 @@
-**kbenestad/appdevelopment • basis**
-**Version:** 0.2.0 - latest commit d740d8c
-**Last updated:** 13 July 2026
+**kbenestad/fundledger • Fund Ledger**
+**Version:** 1.0.0 - latest commit TBD
+**Last updated:** 22 July 2026
