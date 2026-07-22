@@ -1,0 +1,48 @@
+# Fund Ledger — app-level configuration
+# Lives alongside index.html. Requires the app to be served over HTTP
+# (not file://) — use: python3 -m http.server 8000 for local development.
+
+# =============================================================================
+# Document appearance
+# Applied to every generated receipt, acknowledgement, and document.
+# Templates in the ledger's Templates/ folder can insert {logo} to place
+# the logo, and {signatures:1} / {signatures:2} for signature blocks.
+# =============================================================================
+documents:
+
+  # ── Logo ───────────────────────────────────────────────────────────────────
+  # yes|no — loads assets/logo.png, assets/logo.jpg, or assets/logo.svg
+  # and embeds it as base64 so saved HTML files remain self-contained.
+  # Drop your logo file into assets/ alongside index.html.
+  logo: yes
+  logo-max-width-web: 250px  # max-width for screen / browser view
+  logo-max-width-pdf: 7.5cm    # max-width in print / save-as-PDF
+
+  # ── Web theme ──────────────────────────────────────────────────────────────
+  # Optional mdcms theme applied to the screen rendering of generated documents.
+  # Path to a vendored theme YAML file in assets/themes/, e.g.:
+  #   theme: assets/themes/nord.yaml
+  # See https://kbenestad.github.io/mdcms/sample-sites for available themes.
+  # Leave blank for plain black-on-white.
+  theme:
+
+  # ── Typography ─────────────────────────────────────────────────────────────
+  # Font format: "provider:Font Name:weights"
+  #   provider : bunny  → loaded from fonts.bunny.net (GDPR-friendly)
+  #              google → loaded from fonts.googleapis.com
+  #   weights  : single value or comma-separated list
+  # Examples:
+  #   bunny:IBM Plex Sans:300,400,600
+  #   bunny:IBM Plex Serif:400,600
+  #   google:Inter:400,600,700
+  # Leave blank to use the browser's system font.
+  font-body:     bunny:IBM Plex Sans:300
+  font-heading:  bunny:IBM Plex Sans:600
+
+  font-size: 15  # body font size in px (screen)
+  line-height: 1.6
+
+  # ── Layout ─────────────────────────────────────────────────────────────────
+  # Include CSS units. Use px or em for screen; cm or mm for print/PDF.
+  max-width-web: 720px  # document width for screen view
+  max-width-pdf: 17cm   # document width for print / save-as-PDF

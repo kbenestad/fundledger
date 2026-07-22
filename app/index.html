@@ -124,8 +124,7 @@ localisation:
       btn-close-ledger: "Close ledger"
       close-ledger-title: "Close ledger?"
       close-ledger-message: "The app will forget this folder (nothing on disk is deleted). You can reopen it any time."
-      ledger-file-note: "Ledger.html inside the folder is a standalone copy of this dashboard — open it directly to browse records without the app."
-      connected-as: "Connected folder: {name}"
+
       # Generic form / actions
       save: "Save"
       cancel: "Cancel"
@@ -154,6 +153,10 @@ localisation:
       col-name: "Name"
       col-created: "Created"
       no-persons: "No records yet — create the first one."
+      btn-edit: "Edit"
+      edit-person-title: "Edit {id}"
+      person-updated: "{id} updated."
+      btn-open-ledger: "View Ledger"
       new-b-title: "New beneficiary"
       new-d-title: "New donor"
       id-data-applied: "ID document data applied — review the fields below, complete the rest, then save."
@@ -163,10 +166,10 @@ localisation:
       kind-beneficiary: "beneficiary"
       kind-donor: "donor"
       record-saved: "Record {reference} saved."
-      documents-title: "Generated documents"
+      documents-title: "Generated document"
       btn-print: "Print"
-      print-auto-note: "The first document opened a print dialog automatically; print the others from the buttons above."
-      template-missing: "Template \"{name}\" was not found in Templates/ — no document generated for it."
+      btn-reprint: "Reprint"
+      select-language: "Language"
       col-reference: "Reference"
       col-date: "Date"
       col-amount: "Amount"
@@ -205,6 +208,16 @@ localisation:
       sig-signature: "Signature"
       sig-date: "Date"
       # Configuration tab
+      cfg-languages: "Languages"
+      lang-code: "Code"
+      lang-name: "Language name"
+      lang-direction: "Direction (ltr/rtl)"
+      lang-lineheight: "Line height"
+      lang-font: "Font"
+      add-language: "Add language"
+      cfg-template: "Document template"
+      available-tokens: "Available tokens"
+      btn-close: "Close"
       config-title: "Configuration"
       cfg-intro: "This edits config.yml inside the ledger folder. Changes apply to new records; existing record files are never rewritten."
       cfg-fund: "Fund & currency"
@@ -235,7 +248,6 @@ localisation:
       add-field: "Add field"
       move-up: "Move up"
       move-down: "Move down"
-      prints-label: "Documents printed on creation (template names from Templates/, one per line)"
       list-name: "List name"
       list-values: "Values — one per line, as: value, Label shown"
       add-list: "Add list"
@@ -376,7 +388,7 @@ localisation:
 # every field on the four record forms.
 #
 # Field keys:
-#   fieldname : unique name (used as the {fieldname} token in Templates/*.md)
+#   fieldname : unique name (also usable as the {fieldname} token in templates)
 #   label     : text shown on the form and in record files
 #   type      : text | textarea | date | number | drop-down | random-generator | reference
 #   required  : yes | no                       (default no)
@@ -394,6 +406,8 @@ localisation:
 #   from_id        : ID-template field id (or a list of ids, joined with spaces)
 #                    that pre-fills this field in ID Card Reader mode
 
+show-config-tab: yes             # yes|no — set to no to hide the Configuration tab
+
 fund:
   name: "Fund Ledger"
   currency-code: "USD"
@@ -403,6 +417,7 @@ fund:
 beneficiary:
   mode: plaintext                # plaintext | idcardreader
   id-template: unhcr-thailand-id-card
+  display-id: unhcr-case-no     # field surfaced as ID prefix in beneficiary dropdowns
   fields:
     - { fieldname: name, label: "Name", type: text, required: yes }
     - { fieldname: date-of-birth, label: "Date of birth", type: date, date: past-only, from_id: date-of-birth }
@@ -430,8 +445,26 @@ donor:
 
 donation:
   folder-date-field: date-of-donation
-  prints:
-    - donation-receipt
+  signatures: 1
+  signature-labels:
+    - "{donor-name}"
+  template: |
+    {logo}
+
+    # {fund-name}
+
+    ## Donation receipt — {reference}
+
+    Date: **{date-of-donation}**
+
+    Received with thanks from **{donor-name}** (donor {donor-id}) the amount of
+    **{amount}**, given by {channel}.
+
+    Purpose: {purpose}
+
+    {notes}
+
+    {signatures}
   fields:
     - { fieldname: reference, label: "Reference number", type: random-generator }
     - { fieldname: donor, label: "Donor", type: reference, reference: donor, reference_limit: all-records, required: yes }
@@ -452,9 +485,26 @@ donation:
 
 disbursement:
   folder-date-field: date-of-disbursement
-  prints:
-    - disbursement-acknowledgement
-    - disbursement-receipt
+  signatures: 2
+  signature-labels:
+    - "{beneficiary-name}"
+    - "Authorised by"
+  template: |
+    {logo}
+
+    # {fund-name}
+
+    ## Disbursement acknowledgement — {reference}
+
+    I, **{beneficiary-name}** ({beneficiary-id}), acknowledge receipt of
+    **{amount}** from {fund-name} on **{date-of-disbursement}**, disbursed by
+    {channel}.
+
+    Purpose of grant: {purpose}
+
+    {notes}
+
+    {signatures}
   fields:
     - { fieldname: reference, label: "Reference number", type: random-generator }
     - { fieldname: beneficiary, label: "Beneficiary", type: reference, reference: beneficiary, reference_limit: all-records, required: yes }
@@ -480,60 +530,21 @@ drop-down-lists:
     values: ["F, Female", "M, Male", "X, Other / unspecified"]
   - name: case-statuses
     values: ["asylum-seeker, Asylum seeker", "refugee, Recognised refugee", "resettlement, Resettlement processing", "closed, Case closed"]
+
+# Document layout
+documents:
+  padding-top-print:          # top margin before first line when printing / saving as PDF (e.g. 2cm)
+
+# Languages — define at least one. Each entry: code + name (required),
+# direction (ltr|rtl), line-height, font (e.g. bunny:Sarabun:300,400).
+# If two or more are defined, a language selector appears on each form.
+# document templates can be per-language: use a template: {en: "...", th: "..."}
+# mapping instead of a plain string.
+languages:
+  - code: en
+    name: English
 </script>
 
-<!-- SEED: default markdown document templates, written into Templates/ on
-     first open (only if missing — operator edits are never overwritten).
-     {fieldname} tokens are substituted from the record; {signatures:1|2}
-     renders signature blocks. -->
-<script type="text/plain" id="seed-tpl-donation-receipt">
-# {fund-name}
-
-## Donation receipt — {reference}
-
-Date: **{date-of-donation}**
-
-Received with thanks from **{donor-name}** (donor {donor-id}) the amount of
-**{amount}**, given by {channel}.
-
-Purpose: {purpose}
-
-{notes}
-
-{signatures:1}
-</script>
-<script type="text/plain" id="seed-tpl-disbursement-acknowledgement">
-# {fund-name}
-
-## Disbursement acknowledgement — {reference}
-
-I, **{beneficiary-name}** ({beneficiary-id}), acknowledge receipt of
-**{amount}** from {fund-name} on **{date-of-disbursement}**, disbursed by
-{channel}.
-
-Purpose of grant: {purpose}
-
-{notes}
-
-{signatures:2}
-</script>
-<script type="text/plain" id="seed-tpl-disbursement-receipt">
-# {fund-name}
-
-## Disbursement receipt — {reference}
-
-Date of disbursement: **{date-of-disbursement}**
-
-Paid to **{beneficiary-name}** ({beneficiary-id}): **{amount}**, by {channel}.
-
-Purpose of grant: {purpose}
-
-Date of grant: {date-of-grant}
-
-{notes}
-
-{signatures:1}
-</script>
 
 <!-- EMBEDDED ID-CARD EXTRACTION TEMPLATES — copies of
      kbenestad/idcardreader app/templates/*.yaml, inlined because templates
@@ -593,6 +604,89 @@ const APP_VERSION = {
   date: '14 July 2026',
 };
 
+let APP_CFG = null;        // fetched from config.yml (HTTP only; null on file://)
+let LOGO_DATA_URL = null;  // base64 data URL of assets/logo.png|jpg|svg
+
+/* Fetch and parse config.yml from alongside index.html (HTTP only). */
+async function loadAppConfig() {
+  try {
+    const r = await fetch('config.yml');
+    if (!r.ok) return;
+    APP_CFG = jsyaml.load(await r.text()) || null;
+  } catch (e) { /* file:// or missing — silently skip */ }
+}
+
+/* Load the app logo as a base64 data URL so it can be embedded in
+ * generated HTML files that may live in sub-directories of the ledger. */
+async function tryLoadLogo() {
+  for (const src of ['assets/logo.png', 'assets/logo.jpg', 'assets/logo.svg']) {
+    try {
+      const r = await fetch(src);
+      if (!r.ok) continue;
+      const blob = await r.blob();
+      LOGO_DATA_URL = await new Promise((res, rej) => {
+        const rd = new FileReader();
+        rd.onload = () => res(rd.result);
+        rd.onerror = rej;
+        rd.readAsDataURL(blob);
+      });
+      return;
+    } catch (e) { /* try next extension */ }
+  }
+}
+
+/* Build a <link> tag for a "bunny:Font Name:weights" or "google:Font Name:weights"
+ * font spec. Returns '' if the spec is not recognised. */
+function fontSpecToLinkTag(spec) {
+  if (!spec) return '';
+  const parts = String(spec).split(':');
+  if (parts.length < 3) return '';
+  const provider = parts[0].trim().toLowerCase();
+  const name = parts[1].trim();
+  const weights = parts[2].trim();
+  if (!name || !weights) return '';
+  if (provider === 'bunny') {
+    const slug = name.toLowerCase().replace(/\s+/g, '-');
+    return `<link rel="stylesheet" href="https://fonts.bunny.net/css?family=${slug}:${weights}">`;
+  }
+  if (provider === 'google') {
+    const enc = name.replace(/\s+/g, '+');
+    const wList = weights.split(',').join(';');
+    return `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=${enc}:wght@${wList}&display=swap">`;
+  }
+  return '';
+}
+
+/* Build minimal CSS custom-property overrides from an mdcms theme object,
+ * scoped to --doc-* names used by generated standalone HTML documents. */
+function docThemeCss(theme) {
+  if (!theme || !theme.palette) return '';
+  const vars = m => m ? [
+    `--doc-accent:${m.primary||'#2f6fed'}`,
+    `--doc-text:${m.ink||'#14181e'}`,
+    `--doc-text-muted:${m['ink-muted']||'#5f6975'}`,
+    `--doc-bg:${m.page||'#fff'}`,
+    `--doc-surface:${m.surface||'#f4f6fa'}`,
+  ].join(';') : '';
+  const { light, dark } = theme.palette;
+  let css = '';
+  if (light) css += `:root{${vars(light)}}\n`;
+  if (dark)  css += `@media(prefers-color-scheme:dark){:root{${vars(dark)}}}\n`;
+  return css;
+}
+
+/* Fetch and parse the theme referenced by docsConfig.theme (path string or
+ * inline object). Returns null silently on any error. */
+async function loadDocTheme(docsConfig) {
+  if (!docsConfig || !docsConfig.theme) return null;
+  if (typeof docsConfig.theme === 'object') return docsConfig.theme;
+  try {
+    const r = await fetch(String(docsConfig.theme));
+    if (!r.ok) return null;
+    return jsyaml.load(await r.text());
+  } catch (e) { return null; }
+}
+
 const S = (key, vars) => lookupString(CFG['ui-strings'], key, lang, CFG['default-code'], vars);
 const esc = s => kbEsc(s == null ? '' : String(s));
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -647,10 +741,12 @@ const STATE = {
   lastSaved: { donation: null, disbursement: null },  // per-kind post-save panel
   idFlow: { beneficiary: null, donor: null },         // ID-capture flow state per kind
   personDraft: { beneficiary: null, donor: null },    // { prefill, photo, images, note }
+  personEdit: { beneficiary: null, donor: null },     // entry being edited (from index)
+  lang: { donation: null, disbursement: null },        // selected language code per money form
 };
 
 const SUBDIRS = ['Donors', 'Beneficiaries', 'Donations', 'Disbursements', 'Templates', 'Changelog'];
-const SEED_TEMPLATES = ['donation-receipt', 'disbursement-acknowledgement', 'disbursement-receipt'];
+const SEED_TEMPLATES = [];   // templates are now in config.yml, not seeded as files
 
 /* ── IndexedDB (persist the directory handle across sessions) ────────────── */
 function idbOpen() {
@@ -744,14 +840,6 @@ async function connectLedger(handle) {
       return;
     }
 
-    // Default document templates — only ever created, never overwritten.
-    const tplDir = await getDir(handle, 'Templates', true);
-    for (const name of SEED_TEMPLATES) {
-      if (await readFileTextOrNull(tplDir, name + '.md') == null) {
-        await writeFileText(tplDir, name + '.md', readInlineText('seed-tpl-' + name));
-      }
-    }
-
     // Ledger.html — read the embedded index, or start fresh.
     let index = null;
     const ledgerText = await readFileTextOrNull(handle, 'Ledger.html');
@@ -807,6 +895,8 @@ async function closeLedger() {
   STATE.lastSaved = { donation: null, disbursement: null };
   STATE.idFlow = { beneficiary: null, donor: null };
   STATE.personDraft = { beneficiary: null, donor: null };
+  STATE.personEdit = { beneficiary: null, donor: null };
+  STATE.lang = { donation: null, disbursement: null };
   render();
 }
 
@@ -886,6 +976,41 @@ function fileSafeName(s) {
 /* ══════════════════════════════════════════════════════════════════════════
    CONFIG-DRIVEN FORM RENDERER (all record forms are built from config fields)
    ══════════════════════════════════════════════════════════════════════════ */
+/* Concatenate all searchable text values from a person's field values so the
+ * index entry can be searched by phone, case number, etc. */
+function buildPersonSearch(kind, values) {
+  if (!values) return '';
+  const fields = (STATE.ledger.config[kind] || {}).fields || [];
+  return fields
+    .filter(f => f && f.fieldname &&
+      ['text', 'number', 'date', 'drop-down'].includes(String(f.type || '').replace(/\s+/g, '-')))
+    .map(f => String(values[f.fieldname] || ''))
+    .filter(Boolean)
+    .join(' ');
+}
+
+/* Build the display label for a person entry. Prepends the configured
+ * display-id field value (e.g. UNHCR case no.) when the kind's config has
+ * a display-id key. */
+function personLabel(person, kind) {
+  const key = (STATE.ledger.config[kind] || {})['display-id'];
+  const prefix = key && person.displayId ? person.displayId + ' · ' : '';
+  return prefix + person.id + ' — ' + person.name;
+}
+
+/* Rich item list for a person reference field: { value, label, search }.
+ * search combines every stored text field so the combo can filter on
+ * names, phone numbers, case numbers, etc. */
+function refPersonItems(field) {
+  const kind = field.reference;
+  const list = kind === 'beneficiary' ? idx().beneficiaries : idx().donors;
+  return list.map(p => ({
+    value: p.id,
+    label: personLabel(p, kind),
+    search: [p.id, p.name, p.displayId || '', p.search || ''].join(' '),
+  }));
+}
+
 function buildConfigForm(fields, opts = {}) {
   const rows = [];   // { field, wrap, getValue, setValue, setError, visible }
   const grid = el('div', { className: 'kb-grid cols-2' });
@@ -968,11 +1093,50 @@ function buildConfigForm(fields, opts = {}) {
       setValue = v => { if (v) input.value = String(v); };
       wrap.appendChild(row);
     } else if (type === 'reference') {
-      input = el('select', { className: 'kb-select' });
-      wrap.appendChild(input);
-      getValue = () => input.value;
-      setValue = v => { input.value = v == null ? '' : String(v); };
-      input.addEventListener('change', () => changeHooks.forEach(h => h(field.fieldname)));
+      const isPersonRef = field.reference === 'beneficiary' || field.reference === 'donor';
+      if (isPersonRef) {
+        // Searchable combo: filters across name, ID, phone, case numbers, etc.
+        const listId = uid();
+        input = el('input', { className: 'kb-input', placeholder: S('select-placeholder'), autocomplete: 'off' });
+        input.setAttribute('list', listId);
+        const dl = el('datalist', { id: listId });
+        wrap.append(input, dl);
+        let _items = [], _selectedId = '';
+        function _rebuildDl(query) {
+          dl.innerHTML = '';
+          const q = (query || '').toLowerCase();
+          (_items.filter(o => !q || o.search.toLowerCase().includes(q)))
+            .forEach(o => dl.appendChild(el('option', { value: o.label })));
+        }
+        input._setItems = items => {
+          _items = items;
+          const hit = _items.find(o => o.value === _selectedId);
+          if (hit) input.value = hit.label;
+          _rebuildDl('');
+        };
+        input.addEventListener('input', () => _rebuildDl(input.value));
+        input.addEventListener('change', () => {
+          const t = input.value.trim();
+          const hit = _items.find(o => o.label === t);
+          if (hit) { _selectedId = hit.value; input.value = hit.label; }
+          else if (!t) _selectedId = '';
+          _rebuildDl('');
+          changeHooks.forEach(h => h(field.fieldname));
+        });
+        getValue = () => _selectedId;
+        setValue = v => {
+          _selectedId = v == null ? '' : String(v);
+          const hit = _items.find(o => o.value === _selectedId);
+          input.value = hit ? hit.label : '';
+          _rebuildDl('');
+        };
+      } else {
+        input = el('select', { className: 'kb-select' });
+        wrap.appendChild(input);
+        getValue = () => input.value;
+        setValue = v => { input.value = v == null ? '' : String(v); };
+        input.addEventListener('change', () => changeHooks.forEach(h => h(field.fieldname)));
+      }
     } else { // text (default)
       input = el('input', { className: 'kb-input' });
       const max = parseInt(field.text, 10);
@@ -1000,26 +1164,29 @@ function buildConfigForm(fields, opts = {}) {
 
   function refOptions(field) {
     const target = field.reference;
-    let items = [];
-    if (target === 'beneficiary') items = idx().beneficiaries.map(p => ({ value: p.id, label: p.id + ' — ' + p.name }));
-    else if (target === 'donor') items = idx().donors.map(p => ({ value: p.id, label: p.id + ' — ' + p.name }));
-    else if (target === 'donation' || target === 'disbursement') {
+    if (target === 'donation' || target === 'disbursement') {
       let recs = target === 'donation' ? idx().donations : idx().disbursements;
       if (field.reference_limit === 'same-id-only' && personRow) {
         const pid = personRow.getValue();
         recs = pid ? recs.filter(r => r.personId === pid) : [];
       }
-      items = recs.map(r => ({ value: r.reference, label: r.reference + ' — ' + (r.date || '') + ' · ' + fmtMoney(r.amount) }));
+      return recs.map(r => ({ value: r.reference, label: r.reference + ' — ' + (r.date || '') + ' · ' + fmtMoney(r.amount) }));
     }
-    return items;
+    return [];
   }
   function refreshRefSelects() {
     rows.filter(r => r.field.type === 'reference').forEach(r => {
-      const cur = r.input.value;
-      r.input.innerHTML = '';
-      r.input.appendChild(el('option', { value: '' }, S('select-placeholder')));
-      refOptions(r.field).forEach(o => r.input.appendChild(el('option', { value: o.value }, o.label)));
-      r.input.value = cur;
+      if (r.input._setItems) {
+        // Person reference combo — refresh searchable item list
+        r.input._setItems(refPersonItems(r.field));
+      } else {
+        // Record reference select (donation / disbursement)
+        const cur = r.input.value;
+        r.input.innerHTML = '';
+        r.input.appendChild(el('option', { value: '' }, S('select-placeholder')));
+        refOptions(r.field).forEach(o => r.input.appendChild(el('option', { value: o.value }, o.label)));
+        r.input.value = cur;
+      }
     });
   }
   function applyShowIf() {
@@ -1214,20 +1381,52 @@ function buildLedgerHtml() {
   const index = idx();
   const f = fundCfg();
   const t = totalsOf(index);
+  // Encode record entries into data attributes so the JS overlay can read them without re-parsing JSON.
+  const dataAttr = (obj) => 'data-rec=\'' + JSON.stringify(obj).replace(/'/g, '&#39;') + '\'';
   const personTable = (list) => list.length ? `<table><tr><th>${esc(S('col-id'))}</th><th>${esc(S('col-name'))}</th><th>${esc(S('col-created'))}</th></tr>
-    ${list.map(p => `<tr><td><a href="${esc(p.file)}">${esc(p.id)}</a></td><td>${esc(p.name)}</td><td>${esc(p.created)}</td></tr>`).join('')}</table>`
+    ${list.map(p => `<tr><td><button class="lnk" ${dataAttr({id: p.id, name: p.name, file: p.file, created: p.created, fields: p.fields || []})}>${esc(p.id)}</button></td><td>${esc(p.name)}</td><td>${esc(p.created)}</td></tr>`).join('')}</table>`
     : `<p class="sub">${esc(S('none-yet'))}</p>`;
   const moneyTable = (list) => list.length ? `<table><tr><th>${esc(S('col-reference'))}</th><th>${esc(S('col-date'))}</th><th>${esc(S('col-person'))}</th><th style="text-align:right">${esc(S('col-amount'))}</th></tr>
-    ${list.map(r => `<tr><td><a href="${esc(r.folder)}/record.html">${esc(r.reference)}</a></td><td>${esc(r.date)}</td><td>${esc(r.personId)} — ${esc(r.personName)}</td><td class="num">${esc(fmtMoney(r.amount))}</td></tr>`).join('')}</table>`
+    ${list.map(r => `<tr><td><button class="lnk" ${dataAttr({reference: r.reference, date: r.date, personId: r.personId, personName: r.personName, amount: r.amount, folder: r.folder, fields: r.fields || [], documents: r.documents || []})}>${esc(r.reference)}</button></td><td>${esc(r.date)}</td><td>${esc(r.personId)} — ${esc(r.personName)}</td><td class="num">${esc(fmtMoney(r.amount))}</td></tr>`).join('')}</table>`
     : `<p class="sub">${esc(S('none-yet'))}</p>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(f.name || 'Fund Ledger')} — ${esc(S('ledger-title'))}</title>
-<style>${REC_CSS}</style>
+<style>
+${REC_CSS}
+button.lnk{background:none;border:none;padding:0;cursor:pointer;color:var(--accent,#2f6fed);text-decoration:underline;font:inherit;}
+button.lnk:hover{opacity:.75;}
+#ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center;}
+#ov.open{display:flex;}
+#ov-box{background:#fff;border-radius:8px;max-width:560px;width:calc(100% - 40px);max-height:90vh;overflow-y:auto;padding:28px 28px 20px;box-shadow:0 8px 32px rgba(0,0,0,.22);}
+#ov-title{font-size:18px;font-weight:700;margin:0 0 4px;}
+#ov-sub{color:#5f6975;font-size:13px;margin:0 0 16px;}
+#ov-fields table{width:100%;border-collapse:collapse;}
+#ov-fields td{padding:5px 8px 5px 0;vertical-align:top;font-size:14px;border-bottom:1px solid #eef1f5;}
+#ov-fields td:first-child{color:#5f6975;width:42%;white-space:nowrap;}
+#ov-docs{margin-top:14px;}
+#ov-docs h4{font-size:13px;font-weight:600;color:#5f6975;margin:0 0 6px;text-transform:uppercase;letter-spacing:.04em;}
+#ov-docs ul{margin:0;padding:0 0 0 16px;}
+#ov-docs li{font-size:13px;margin:2px 0;}
+#ov-path{margin-top:14px;background:#f4f6fa;border-radius:5px;padding:8px 10px;font-family:monospace;font-size:12px;word-break:break-all;display:flex;align-items:center;gap:8px;}
+#ov-path span{flex:1;}
+#ov-path button{flex-shrink:0;background:#2f6fed;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer;}
+#ov-path button:active{opacity:.8;}
+#ov-foot{margin-top:18px;text-align:right;}
+#ov-foot button{background:#2f6fed;color:#fff;border:none;border-radius:5px;padding:7px 18px;font-size:14px;cursor:pointer;}
+</style>
 </head>
 <body>
+<div id="ov"><div id="ov-box">
+  <p id="ov-title"></p>
+  <p id="ov-sub"></p>
+  <div id="ov-fields"></div>
+  <div id="ov-docs"></div>
+  <div id="ov-path" style="display:none"><span id="ov-path-text"></span><button onclick="navigator.clipboard.writeText(document.getElementById('ov-path-text').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button></div>
+  <div id="ov-foot"><button onclick="document.getElementById('ov').classList.remove('open')">Close</button></div>
+</div></div>
 <div class="doc">
   <h1>${esc(f.name || 'Fund Ledger')}</h1>
   <div class="sub">${esc(S('ledger-title'))} · ${esc(S('rec-generated-on'))} ${esc(new Date().toISOString().slice(0, 16).replace('T', ' '))}</div>
@@ -1242,6 +1441,37 @@ function buildLedgerHtml() {
   <div class="idxsec"><h2>${esc(S('count-donors'))} (${index.donors.length})</h2>${personTable(index.donors)}</div>
   <div class="foot">${esc(S('ledger-note'))}</div>
 </div>
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  document.addEventListener('click',function(e){
+    var btn=e.target.closest('button.lnk');
+    if(!btn)return;
+    var rec=JSON.parse(btn.getAttribute('data-rec'));
+    var isMoneyRec=!!rec.reference;
+    document.getElementById('ov-title').textContent=rec.reference||rec.id||'';
+    document.getElementById('ov-sub').textContent=isMoneyRec
+      ?(rec.date+(rec.personId?' · '+rec.personId+' — '+rec.personName:''))
+      :(rec.created?'Created '+rec.created:'');
+    var rows=(rec.fields||[]).map(function(f){return'<tr><td>'+esc(f.label)+'</td><td>'+esc(f.value)+'</td></tr>';}).join('');
+    document.getElementById('ov-fields').innerHTML=rows?'<table>'+rows+'</table>':'';
+    var docs=rec.documents||[];
+    document.getElementById('ov-docs').innerHTML=docs.length
+      ?'<h4>Documents</h4><ul>'+docs.map(function(d){return'<li>'+esc(d)+'</li>';}).join('')+'</ul>':'';
+    var pathEl=document.getElementById('ov-path');
+    var pathText=document.getElementById('ov-path-text');
+    var path=rec.folder||rec.file||'';
+    if(path){pathText.textContent=path;pathEl.style.display='flex';}else{pathEl.style.display='none';}
+    document.getElementById('ov').classList.add('open');
+  });
+  document.getElementById('ov').addEventListener('click',function(e){
+    if(e.target===this)this.classList.remove('open');
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape')document.getElementById('ov').classList.remove('open');
+  });
+})();
+</script>
 ${embedJson('ledger-index', index)}
 </body>
 </html>`;
@@ -1253,38 +1483,95 @@ async function writeLedgerIndex() {
 /* ── Printable documents from Templates/*.md ─────────────────────────────── */
 function fillTemplate(tplText, tokens) {
   return tplText.replace(/\{([a-z0-9_-]+)\}/gi, (m, key) =>
-    tokens[key] != null ? String(tokens[key]) : (/^signatures?:?/i.test(key) ? m : ''));
+    tokens[key] != null ? String(tokens[key]) : (/^(?:signatures?:?|logo)$/i.test(key) ? m : ''));
 }
-function signatureBlockHtml(n) {
-  const one = `<div style="flex:1 1 0; min-width:200px;">
-    <div style="border-top:1.5px solid #14181e; margin-top:64px;"></div>
-    <div style="font-size:12px; color:#5f6975; display:flex; justify-content:space-between; margin-top:4px;">
-      <span>${esc(S('sig-signature'))}</span><span>${esc(S('sig-date'))}</span>
+function signatureBlockHtml(n, labels) {
+  const count = Math.max(1, Math.min(2, parseInt(n) || 1));
+  const block = (i) => {
+    const label = labels && labels[i] != null ? String(labels[i]) : '';
+    return `<div style="width:40%;">
+    <div style="border-top:1.5px solid #14181e;margin-top:64px;"></div>
+    <div style="font-size:12px;color:#5f6975;display:flex;justify-content:space-between;margin-top:4px;">
+      <span>${label ? esc(label) : esc(S('sig-signature'))}</span><span>${esc(S('sig-date'))}</span>
     </div></div>`;
-  return `<div style="display:flex; gap:40px; margin-top:24px;">${n === 2 ? one + one : one}</div>`;
+  };
+  const wrap = count === 1
+    ? 'display:flex;justify-content:center;margin-top:24px;'
+    : 'display:flex;justify-content:space-between;margin-top:24px;';
+  return `<div style="${wrap}">${Array.from({length:count}, (_, i) => block(i)).join('')}</div>`;
 }
-function documentHtml(md, title) {
+function documentHtml(md, title, docsConfig, logoDataUrl, langSpec) {
+  docsConfig = docsConfig || {};
+
+  // Language-specific overrides: font, line-height, direction
+  const langFont = langSpec && langSpec.font || null;
+  const langLineH = langSpec && langSpec['line-height'] || null;
+  const langDir   = langSpec && langSpec.direction || 'ltr';
+  const langCode  = langSpec && langSpec.code || 'en';
+
+  // Font: language override > docsConfig font-body
+  const bodySpec    = langFont || docsConfig['font-body'];
+  const headingSpec = docsConfig['font-heading'];
+
+  // Font link tags from "bunny:Font:weights" / "google:Font:weights" specs
+  const fontLinks = [...new Set(
+    [bodySpec, headingSpec].map(fontSpecToLinkTag).filter(Boolean)
+  )].join('\n');
+
+  // CSS font-family strings (kbParseFontName extracts the family from the spec)
+  const bodyName    = kbParseFontName(bodySpec);
+  const headingName = kbParseFontName(headingSpec) || bodyName;
+  const fontBody    = bodyName    ? `"${bodyName}",sans-serif`    : 'system-ui,sans-serif';
+  const fontHeading = headingName ? `"${headingName}",sans-serif` : fontBody;
+
+  const fontSize   = Math.max(10, parseInt(docsConfig['font-size'])    || 15);
+  const lineHeight = parseFloat(langLineH || docsConfig['line-height']) || 1.6;
+
+  const maxW        = String(docsConfig['max-width-web']       || '720px');
+  const maxWPdf     = String(docsConfig['max-width-pdf']       || '17cm');
+  const logoMaxW    = String(docsConfig['logo-max-width-web']  || '200px');
+  const logoMaxWPdf = String(docsConfig['logo-max-width-pdf']  || '5cm');
+
+  const themeCss = docsConfig['_theme'] ? docThemeCss(docsConfig['_theme']) : '';
+  const footSz   = Math.round(fontSize * 0.73);
+
+  const sigCount  = docsConfig._sigCount  || 1;
+  const sigLabels = docsConfig._sigLabels || [];
+
   let html = markdown(md);
-  html = html.replace(/(?:<p>)?\{signatures:([12])\}(?:<\/p>)?/g, (m, n) => signatureBlockHtml(parseInt(n, 10)));
+  // {signatures} (count from config) or {signatures:N} (legacy, count from config overrides)
+  html = html.replace(/(?:<p>)?\{signatures?(?::[12])?\}(?:<\/p>)?/g,
+    () => signatureBlockHtml(sigCount, sigLabels));
+
+  // {logo} is preserved through fillTemplate + markdown; substitute as raw HTML here
+  const showLogo = kbTruthy(docsConfig.logo !== undefined ? docsConfig.logo : true);
+  const logoHtml = (showLogo && logoDataUrl)
+    ? `<img class="doc-logo" src="${logoDataUrl}" alt="">`
+    : '';
+  html = html.replace(/(?:<p>)?\{logo\}(?:<\/p>)?/gi, logoHtml);
+
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${esc(langCode)}" dir="${esc(langDir)}">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
+${fontLinks}
 <style>
-  * { box-sizing:border-box; }
-  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
-    margin:0; padding:34px; color:#14181e; background:#fff; line-height:1.6; }
-  .sheet { max-width:720px; margin:0 auto; }
-  h1 { font-size:22px; margin:0 0 6px; }
-  h2 { font-size:16px; margin:18px 0 8px; }
-  h3 { font-size:14px; margin:14px 0 6px; }
-  p { margin:8px 0; }
-  @media print { body { padding:0; } }
+${themeCss}:root{--doc-accent:#2f6fed;--doc-text:#14181e;--doc-text-muted:#5f6975;--doc-bg:#fff;--doc-surface:#f4f6fa;--doc-border:#eef1f5;}
+*{box-sizing:border-box;}
+body{font-family:${fontBody};font-size:${fontSize}px;margin:0;padding:34px;color:var(--doc-text);background:var(--doc-bg);line-height:${lineHeight};direction:${langDir};}
+.sheet{max-width:${maxW};margin:0 auto;}
+h1{font-family:${fontHeading};font-size:${Math.round(fontSize*1.47)}px;margin:0 0 6px;}
+h2{font-family:${fontHeading};font-size:${Math.round(fontSize*1.07)}px;margin:18px 0 8px;}
+h3{font-family:${fontHeading};font-size:${Math.round(fontSize*0.93)}px;margin:14px 0 6px;}
+p{margin:8px 0;}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}a{color:var(--doc-accent);}
+.doc-logo{max-width:${logoMaxW};height:auto;display:block;margin-bottom:16px;}
+.doc-foot{margin-top:28px;padding-top:10px;border-top:1px solid var(--doc-border);font-size:${footSz}px;color:var(--doc-text-muted);}
+@media print{body{padding:${docsConfig['padding-top-print'] ? docsConfig['padding-top-print'] + ' 0 0' : '0'};background:#fff;color:#000;}.sheet{max-width:${maxWPdf};}.doc-logo{max-width:${logoMaxWPdf};}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}}
 </style>
 </head>
 <body><div class="sheet">${html}
-<div style="margin-top:28px; padding-top:10px; border-top:1px solid #eef1f5; font-size:11px; color:#9aa3af;">${esc(S('rec-generated-on'))} ${esc(todayIso())} · ${esc(S('rec-generated-by'))}</div>
+<div class="doc-foot">${esc(S('rec-generated-on'))} ${esc(todayIso())} · ${esc(S('rec-generated-by'))}</div>
 </div></body>
 </html>`;
 }
@@ -1317,7 +1604,7 @@ async function savePerson(kind, values, fields, extras) {
     images: extras && extras.images || [],
     documents: [],
     jsonId: 'record-data',
-    jsonData: { kind, id, name: values.name || '', created: todayIso(), values,
+    jsonData: { kind, id, name: values.name || '', created: todayIso(), values, fieldRows,
       photo: extras && extras.photo || null, images: extras && extras.images || [] },
   });
   // 1) record file
@@ -1326,7 +1613,13 @@ async function savePerson(kind, values, fields, extras) {
   await appendChangelog(kind + '-created', id, (values.name || '') + ' (' + fileName + ')');
   // 3) index last
   idx().counters[kind] = (idx().counters[kind] || 0) + 1;
-  const entry = { id, name: values.name || '', file: dirName + '/' + fileName, created: todayIso() };
+  const displayIdKey = (STATE.ledger.config[kind] || {})['display-id'];
+  const entry = {
+    id, name: values.name || '', file: dirName + '/' + fileName, created: todayIso(),
+    search: buildPersonSearch(kind, values),
+    displayId: displayIdKey ? (values[displayIdKey] || '') : '',
+    fields: fieldRows,
+  };
   (kind === 'beneficiary' ? idx().beneficiaries : idx().donors).push(entry);
   await writeLedgerIndex();
   return entry;
@@ -1364,15 +1657,47 @@ async function saveMoneyRecord(kind, form) {
   tokens[personKind + '-name'] = person.name || '';
   if (amountField) tokens['amount'] = fmtMoney(amount);
 
-  // Generate the configured documents.
-  const tplDir = await getDir(STATE.ledger.handle, 'Templates', true);
-  const docs = [];         // { name (file), html }
-  const missing = [];
-  for (const tplName of (block.prints || [])) {
-    const md = await readFileTextOrNull(tplDir, tplName + '.md');
-    if (md == null) { missing.push(tplName); continue; }
-    const html = documentHtml(fillTemplate(md, tokens), tplName + ' ' + reference);
-    docs.push({ name: tplName + '_' + reference + '.html', html });
+  // Pick language spec from STATE (set by language selector in the form).
+  const langs = STATE.ledger.config.languages || [];
+  const langCode = STATE.lang[kind] || (langs.length > 0 ? langs[0].code : null);
+  const langSpec = langs.find(l => l.code === langCode) || null;
+
+  // Resolve template: config block.template (string or per-language map)
+  // Falls back to Templates/ files via block.prints for existing ledgers.
+  let md = null;
+  const tplVal = block.template;
+  if (typeof tplVal === 'string') {
+    md = tplVal;
+  } else if (tplVal && typeof tplVal === 'object') {
+    md = (langCode && tplVal[langCode]) || Object.values(tplVal)[0] || null;
+  }
+  // Legacy fallback: use first entry of block.prints
+  if (!md && block.prints && block.prints.length) {
+    const tplDir = await getDir(STATE.ledger.handle, 'Templates', true);
+    md = await readFileTextOrNull(tplDir, block.prints[0] + '.md');
+  }
+
+  // docsConfig: app-level config.yml first, ledger-level documents: overrides on top.
+  const docsConfig = Object.assign({}, (APP_CFG && APP_CFG.documents) || {}, STATE.ledger.config.documents || {});
+  const docTheme = await loadDocTheme(docsConfig);
+  if (docTheme) docsConfig['_theme'] = docTheme;
+
+  // Signatures: count from config; labels optionally per-language, with token substitution
+  docsConfig._sigCount = parseInt(block.signatures) || 1;
+  const rawLabels = (() => {
+    const sl = block['signature-labels'];
+    if (!sl) return [];
+    if (Array.isArray(sl)) return sl;
+    if (typeof sl === 'object' && langCode && sl[langCode]) return sl[langCode];
+    if (typeof sl === 'object') return Object.values(sl)[0] || [];
+    return [];
+  })();
+  docsConfig._sigLabels = rawLabels.map(l => fillTemplate(String(l), tokens));
+
+  const docs = [];
+  if (md) {
+    const docHtml = documentHtml(fillTemplate(md, tokens), reference, docsConfig, LOGO_DATA_URL, langSpec);
+    docs.push({ name: reference + '.html', html: docHtml });
   }
 
   // 1) record folder + files
@@ -1387,7 +1712,7 @@ async function saveMoneyRecord(kind, form) {
     documents: docs.map(d => d.name),
     jsonId: 'record-data',
     jsonData: { kind, reference, personId: person.id, personName: person.name, date: recDate,
-      amount, values, documents: docs.map(d => d.name), created: todayIso() },
+      amount, values, fieldRows, documents: docs.map(d => d.name), created: todayIso() },
   });
   await writeFileText(folder, 'record.html', recHtml);
   // 2) changelog
@@ -1395,11 +1720,12 @@ async function saveMoneyRecord(kind, form) {
     (person.id ? person.id + ' ' : '') + fmtMoney(amount) + ' (' + parentName + '/' + folderName + ')');
   // 3) index last
   const entry = { reference, personId: person.id, personName: person.name, date: recDate, amount,
-    folder: parentName + '/' + folderName, created: todayIso() };
+    folder: parentName + '/' + folderName, created: todayIso(),
+    fields: fieldRows, documents: docs.map(d => d.name) };
   (kind === 'donation' ? idx().donations : idx().disbursements).push(entry);
   await writeLedgerIndex();
 
-  return { reference, docs, missing };
+  return { reference, docs };
 }
 
 /* ── Rebuild the index by scanning record files (crash recovery) ─────────── */
@@ -1413,7 +1739,13 @@ async function rebuildIndex() {
       const text = await (await entry.getFile()).text();
       const data = extractEmbeddedJson(text, 'record-data');
       if (!data || data.kind !== kind) continue;
-      fresh[listKey].push({ id: data.id, name: data.name || '', file: dirName + '/' + entry.name, created: data.created || '' });
+      const displayIdKey2 = (STATE.ledger.config[kind] || {})['display-id'];
+      fresh[listKey].push({
+        id: data.id, name: data.name || '', file: dirName + '/' + entry.name, created: data.created || '',
+        search: buildPersonSearch(kind, data.values),
+        displayId: displayIdKey2 ? ((data.values || {})[displayIdKey2] || '') : '',
+        fields: data.fieldRows || [],
+      });
       const n = parseInt(String(data.id).replace(/^[BD]-/, ''), 10);
       if (n > fresh.counters[kind]) fresh.counters[kind] = n;
     }
@@ -1428,7 +1760,8 @@ async function rebuildIndex() {
       const data = extractEmbeddedJson(text, 'record-data');
       if (!data || data.kind !== kind) continue;
       fresh[listKey].push({ reference: data.reference, personId: data.personId || '', personName: data.personName || '',
-        date: data.date || '', amount: data.amount || 0, folder: dirName + '/' + entry.name, created: data.created || '' });
+        date: data.date || '', amount: data.amount || 0, folder: dirName + '/' + entry.name, created: data.created || '',
+        fields: data.fieldRows || [], documents: data.documents || [] });
     }
     fresh[listKey].sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }
@@ -1775,7 +2108,10 @@ function buildDashboard() {
 
   const t = totalsOf(idx());
   const card = el('div', { className: 'kb-card' });
-  card.appendChild(el('div', { className: 'kb-card__title' }, (fundCfg().name || 'Fund Ledger')));
+  const titleRow = el('div', { style: { marginBottom: '4px' } });
+  titleRow.appendChild(el('div', { className: 'kb-card__title', style: { marginBottom: '2px' } }, (fundCfg().name || 'Fund Ledger')));
+  titleRow.appendChild(el('div', { style: { fontSize: '17px', fontWeight: '700', color: 'var(--text)', fontFamily: 'monospace', letterSpacing: '-0.01em' } }, STATE.ledger.name));
+  card.appendChild(titleRow);
   const stats = el('div', { className: 'fl-stats' });
   [[S('total-donations'), fmtMoney(t.donations), false],
    [S('total-disbursements'), fmtMoney(t.disbursements), false],
@@ -1789,10 +2125,10 @@ function buildDashboard() {
     `${S('count-beneficiaries')}: ${idx().beneficiaries.length} · ${S('count-donors')}: ${idx().donors.length} · ` +
     `${S('count-donations')}: ${idx().donations.length} · ${S('count-disbursements')}: ${idx().disbursements.length}`);
   card.appendChild(counts);
-  card.appendChild(el('p', { className: 'fl-muted' }, S('connected-as', { name: STATE.ledger.name }) + ' — ' + S('ledger-file-note')));
   const actions = el('div', { className: 'kb-actions', style: { marginTop: '12px' } });
   actions.append(
     el('button', { className: 'kb-btn kb-btn--ghost', onClick: rebuildIndex }, S('btn-rebuild-index')),
+    el('button', { className: 'kb-btn kb-btn--ghost', onClick: openLedgerHtml }, S('btn-open-ledger')),
     el('div', { className: 'spacer' }),
     el('button', { className: 'kb-btn kb-btn--danger', onClick: closeLedger }, S('btn-close-ledger')));
   card.appendChild(actions);
@@ -1821,32 +2157,188 @@ function buildDashboard() {
   return wrap;
 }
 
+/* ── Token reference modal ────────────────────────────────────────────────── */
+function showTokensModal(tokens) {
+  const body = el('div', { className: 'kb-modal__body' });
+  const table = el('table', { style: { width: '100%', borderCollapse: 'collapse' } });
+  tokens.forEach(({ token, desc }) => {
+    const tr = el('tr');
+    const tdCode = el('td', { style: { padding: '5px 8px', whiteSpace: 'nowrap', verticalAlign: 'middle' } });
+    const code = el('code', { style: {
+      fontFamily: 'monospace', background: 'var(--surface-2)',
+      padding: '2px 6px', borderRadius: '4px', fontSize: '13px' } }, '{' + token + '}');
+    const copyBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost kb-btn--sm',
+      style: { marginLeft: '8px' }, onClick: async () => {
+        try { await navigator.clipboard.writeText('{' + token + '}'); } catch (e) {}
+        close(token);
+      } }, S('rec-copy'));
+    tdCode.append(code, copyBtn);
+    tr.append(tdCode, el('td', { style: {
+      padding: '5px 8px', color: 'var(--text-muted)',
+      fontSize: 'var(--fs-small)', verticalAlign: 'middle' } }, desc));
+    table.appendChild(tr);
+  });
+  body.appendChild(table);
+
+  const overlay = el('div', { className: 'kb-overlay' });
+  const modal   = el('div', { className: 'kb-modal' });
+  const hdr     = el('div', { className: 'kb-modal__hdr' });
+  hdr.appendChild(el('span', null, S('available-tokens')));
+  const footer   = el('div', { className: 'kb-modal__footer' });
+  const closeBtn = el('button', { type: 'button', className: 'kb-btn kb-btn--ghost',
+    onClick: () => close(null) }, S('btn-close'));
+  footer.appendChild(closeBtn);
+  modal.append(hdr, body, footer);
+  overlay.appendChild(modal);
+
+  let done = false;
+  function close(val) {
+    if (done) return; done = true;
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(null); }
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
+  closeBtn.focus();
+}
+
+/* ── Open Ledger.html in a new window (blob URL) ─────────────────────────── */
+async function openLedgerHtml() {
+  const text = await readFileTextOrNull(STATE.ledger.handle, 'Ledger.html');
+  if (!text) return;
+  const blob = new Blob([text], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/* ── Update an existing person record in place ────────────────────────────── */
+async function updatePerson(kind, entry, values, fields, extras) {
+  const dirName = kind === 'beneficiary' ? 'Beneficiaries' : 'Donors';
+  const dir = await getDir(STATE.ledger.handle, dirName, false);
+  const fileName = entry.file.split('/').pop();
+
+  const disp = displayMap(fields, values);
+  const fieldRows = [{ label: S('col-id'), value: entry.id }]
+    .concat(fields.filter(f => values[f.fieldname] != null && values[f.fieldname] !== '')
+      .map(f => ({ label: f.label || f.fieldname, value: disp[f.fieldname] != null ? disp[f.fieldname] : values[f.fieldname] })));
+  const html = recordPageHtml({
+    title: entry.id + ' — ' + (values.name || ''),
+    subtitle: (kind === 'beneficiary' ? S('tab-beneficiary') : S('tab-donor')) + ' · ' + S('rec-generated-on') + ' ' + entry.created,
+    fieldRows,
+    photo: extras && extras.photo || null,
+    images: extras && extras.images || [],
+    documents: [],
+    jsonId: 'record-data',
+    jsonData: { kind, id: entry.id, name: values.name || '', created: entry.created, values, fieldRows,
+      photo: extras && extras.photo || null, images: extras && extras.images || [] },
+  });
+  await writeFileText(dir, fileName, html);
+  await appendChangelog(kind + '-updated', entry.id, (values.name || '') + ' (' + fileName + ')');
+
+  const list = kind === 'beneficiary' ? idx().beneficiaries : idx().donors;
+  const i = list.findIndex(p => p.id === entry.id);
+  const displayIdKey = (STATE.ledger.config[kind] || {})['display-id'];
+  if (i >= 0) {
+    list[i] = Object.assign({}, list[i], {
+      name: values.name || '',
+      search: buildPersonSearch(kind, values),
+      displayId: displayIdKey ? (values[displayIdKey] || '') : '',
+      fields: fieldRows,
+    });
+  }
+  await writeLedgerIndex();
+}
+
 /* ── Person tabs (Beneficiary / Donor) ───────────────────────────────────── */
 function buildPersonTab(kind) {
   const wrap = el('div', { className: 'fl-tab-body' });
   if (!STATE.ledger) { wrap.appendChild(noteEl('info', S('not-connected-note'))); return wrap; }
   const block = STATE.ledger.config[kind] || {};
   const list = kind === 'beneficiary' ? idx().beneficiaries : idx().donors;
+  const displayIdKey = block['display-id'];
 
-  // Existing records
-  const listCard = el('div', { className: 'kb-card' });
-  listCard.appendChild(el('div', { className: 'kb-card__title' }, S(kind === 'beneficiary' ? 'beneficiaries-title' : 'donors-title')));
-  if (!list.length) listCard.appendChild(el('p', { className: 'fl-muted' }, S('no-persons')));
-  else {
+  /* ── Edit mode ─────────────────────────────────────────────────────── */
+  if (STATE.personEdit[kind]) {
+    const entry = STATE.personEdit[kind];
+    const card = el('div', { className: 'kb-card' });
+    card.appendChild(el('div', { className: 'kb-card__title' }, S('edit-person-title', { id: entry.id })));
+    const form = buildConfigForm(block.fields || []);
+    form.setValues(entry._values || {});
+    card.appendChild(form.root);
+    const acts = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
+    const cancelBtn = el('button', { className: 'kb-btn kb-btn--ghost', onClick: () => { STATE.personEdit[kind] = null; render(); } }, S('cancel'));
+    const saveBtn = el('button', { className: 'kb-btn kb-btn--primary', onClick: async () => {
+      if (!form.validate()) return;
+      saveBtn.disabled = true;
+      try {
+        await updatePerson(kind, entry, form.getValues(), block.fields || [], { photo: entry._photo || null, images: entry._images || [] });
+        STATE.personEdit[kind] = null;
+        render();
+        await kbAlert({ title: entry.id, message: S('person-updated', { id: entry.id }), icon: KB_ICON.info });
+      } catch (e) {
+        console.error(e);
+        saveBtn.disabled = false;
+        await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+      }
+    } }, S('save'));
+    acts.append(cancelBtn, el('div', { className: 'spacer' }), saveBtn);
+    card.appendChild(acts);
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  /* ── Existing records (accordion, collapsed by default) ────────────── */
+  const listContent = el('div');
+  if (!list.length) {
+    listContent.appendChild(el('p', { className: 'fl-muted' }, S('no-persons')));
+  } else {
     const table = el('table', { className: 'fl-table' });
     const head = el('tr');
-    [S('col-id'), S('col-name'), S('col-created')].forEach(h => head.appendChild(el('th', null, h)));
+    const cols = [S('col-id')];
+    if (displayIdKey) cols.push(displayIdKey);
+    cols.push(S('col-name'), S('col-created'), '');
+    cols.forEach(h => head.appendChild(el('th', null, h)));
     table.appendChild(head);
     list.forEach(p => {
       const tr = el('tr');
-      tr.append(el('td', { className: 'fl-mono' }, p.id), el('td', null, p.name), el('td', null, p.created));
+      tr.appendChild(el('td', { className: 'fl-mono' }, p.id));
+      if (displayIdKey) tr.appendChild(el('td', { className: 'fl-mono' }, p.displayId || ''));
+      tr.append(el('td', null, p.name), el('td', null, p.created));
+      const editBtn = el('button', { className: 'kb-btn kb-btn--ghost kb-btn--sm', onClick: async () => {
+        editBtn.disabled = true;
+        try {
+          const dirName = kind === 'beneficiary' ? 'Beneficiaries' : 'Donors';
+          const dir = await getDir(STATE.ledger.handle, dirName, false);
+          const fileName = p.file.split('/').pop();
+          const text = await readFileTextOrNull(dir, fileName);
+          const data = text ? extractEmbeddedJson(text, 'record-data') : null;
+          STATE.personEdit[kind] = Object.assign({}, p, {
+            _values: data && data.values || {},
+            _photo: data && data.photo || null,
+            _images: data && data.images || [],
+          });
+          render();
+        } catch (e) {
+          console.error(e);
+          editBtn.disabled = false;
+          await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+        }
+      } }, S('btn-edit'));
+      tr.appendChild(el('td', null, editBtn));
       table.appendChild(tr);
     });
-    listCard.appendChild(table);
+    listContent.appendChild(table);
   }
-  wrap.appendChild(listCard);
+  const acc = makeAccordion(
+    [{ label: S(kind === 'beneficiary' ? 'beneficiaries-title' : 'donors-title') + ' (' + list.length + ')', content: listContent }],
+    { openAllLabel: S('open-all'), closeAllLabel: S('close-all') }
+  );
+  wrap.appendChild(acc);
 
-  // New record
+  /* ── New record ────────────────────────────────────────────────────── */
   const card = el('div', { className: 'kb-card' });
   card.appendChild(el('div', { className: 'kb-card__title' }, S(kind === 'beneficiary' ? 'new-b-title' : 'new-d-title')));
 
@@ -1854,7 +2346,6 @@ function buildPersonTab(kind) {
   const draft = STATE.personDraft[kind];
 
   if (idMode && !draft && !STATE.idFlow[kind]) {
-    // Offer the choice (brief: "When clicking Create, offered a choice").
     const actions = el('div', { className: 'kb-actions' });
     actions.appendChild(el('button', { className: 'kb-btn kb-btn--primary', onClick: async () => {
       const choice = await kbModal({
@@ -1891,7 +2382,6 @@ function buildPersonTab(kind) {
     return wrap;
   }
 
-  // Plaintext form (possibly prefilled from the ID flow).
   if (draft && draft.note) card.appendChild(el('div', { style: { marginBottom: '12px' } }, noteEl('success', draft.note)));
   if (draft && draft.photo) {
     card.appendChild(el('img', { src: draft.photo, style: { maxWidth: '130px', maxHeight: '170px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '12px' } }));
@@ -1931,19 +2421,18 @@ function buildMoneyTab(kind) {
   const fields = block.fields || [];
   const personKind = kind === 'donation' ? 'donor' : 'beneficiary';
   const persons = personKind === 'donor' ? idx().donors : idx().beneficiaries;
+  const langs = STATE.ledger.config.languages || [];
 
-  // Post-save panel (documents + print buttons)
+  // Post-save panel
   const last = STATE.lastSaved[kind];
   if (last) {
     const done = el('div', { className: 'kb-card' });
     done.appendChild(el('div', { className: 'kb-card__title' }, S('documents-title')));
     done.appendChild(el('div', { style: { marginBottom: '10px' } }, noteEl('success', S('record-saved', { reference: last.reference }))));
-    last.missing.forEach(name => done.appendChild(el('div', { style: { marginBottom: '8px' } }, noteEl('warning', S('template-missing', { name })))));
     if (last.docs.length) {
       const bar = el('div', { className: 'kb-actbar' });
-      last.docs.forEach(d => bar.appendChild(el('button', { className: 'kb-btn kb-btn--soft', onClick: () => printHtml(d.html) }, S('btn-print') + ' · ' + d.name)));
+      bar.appendChild(el('button', { className: 'kb-btn kb-btn--soft', onClick: () => printHtml(last.docs[0].html) }, S('btn-reprint')));
       done.appendChild(bar);
-      done.appendChild(el('p', { className: 'fl-muted', style: { marginTop: '8px' } }, S('print-auto-note')));
     }
     wrap.appendChild(done);
   }
@@ -1955,6 +2444,22 @@ function buildMoneyTab(kind) {
     wrap.appendChild(card);
     return wrap;
   }
+
+  // Language selector (always shown when languages are defined, to choose document language)
+  if (langs.length >= 1) {
+    const curCode = STATE.lang[kind] || langs[0].code;
+    const row = el('div', { style: { marginBottom: '12px' } });
+    const sel = el('select', { className: 'kb-select' });
+    langs.forEach(l => {
+      const o = el('option', { value: l.code }, l.name + (l.code !== l.name ? ' (' + l.code + ')' : ''));
+      if (l.code === curCode) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => { STATE.lang[kind] = sel.value; });
+    row.appendChild(field(S('select-language'), sel));
+    card.appendChild(row);
+  }
+
   const form = buildConfigForm(fields);
   card.appendChild(form.root);
   const actions = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
@@ -1965,7 +2470,7 @@ function buildMoneyTab(kind) {
       const res = await saveMoneyRecord(kind, form);
       STATE.lastSaved[kind] = res;
       render();
-      if (res.docs.length) printHtml(res.docs[0].html);   // auto-print the first document
+      if (res.docs.length) printHtml(res.docs[0].html);
     } catch (e) {
       console.error(e);
       saveBtn.disabled = false;
@@ -1985,6 +2490,10 @@ function buildConfigTab() {
 
   // Deep working copy — editors mutate this; Save writes it to config.yml.
   const work = JSON.parse(JSON.stringify(STATE.ledger.config));
+
+  // Template sections register a repaint function here so languagesSection can
+  // trigger them when languages are added or removed.
+  const tplRepaint = {};
   const card = el('div', { className: 'kb-card' });
   card.appendChild(el('div', { className: 'kb-card__title' }, S('config-title')));
   card.appendChild(el('p', { className: 'fl-muted', style: { marginBottom: '12px' } }, S('cfg-intro')));
@@ -2034,13 +2543,167 @@ function buildConfigTab() {
       sel.addEventListener('change', () => { work[kind].mode = sel.value; });
       grid.appendChild(field(S('mode-for', { kind: S('tab-' + kind) }), sel));
       grid.appendChild(field(S('id-template-for', { kind: S('tab-' + kind) }), inp(work[kind]['id-template'], v => { work[kind]['id-template'] = v; })));
+      grid.appendChild(field(S('tab-' + kind) + ' display-ID field', inp(work[kind]['display-id'] || '', v => { work[kind]['display-id'] = v.trim() || undefined; })));
     });
     box.appendChild(grid);
     return box;
   }
 
+  // Languages editor
+  function languagesSection() {
+    const box = el('div');
+    work.languages = work.languages || [];
+    const host = el('div');
+    box.appendChild(host);
+    function repaintLangs() {
+      host.innerHTML = '';
+      work.languages.forEach((lang, i) => {
+        const row = el('div', { className: 'fl-fieldrow' });
+        row.appendChild(field(S('lang-code'),       inp(lang.code,                 v => { lang.code = v.trim(); })));
+        row.appendChild(field(S('lang-name'),       inp(lang.name,                 v => { lang.name = v; })));
+        row.appendChild(field(S('lang-direction'),  inp(lang.direction || '',      v => { if (v.trim()) lang.direction = v.trim(); else delete lang.direction; })));
+        row.appendChild(field(S('lang-lineheight'), inp(lang['line-height'] != null ? String(lang['line-height']) : '', v => {
+          const n = parseFloat(v); if (!isNaN(n)) lang['line-height'] = n; else delete lang['line-height'];
+        })));
+        row.appendChild(field(S('lang-font'),       inp(lang.font || '',           v => { if (v.trim()) lang.font = v.trim(); else delete lang.font; })));
+        const rm = el('button', { type: 'button', className: 'kb-circbtn kb-circbtn--rm', title: S('remove'),
+          onClick: () => { work.languages.splice(i, 1); repaintLangs(); Object.values(tplRepaint).forEach(fn => fn && fn()); } }, '✕');
+        row.appendChild(el('div', { style: { paddingTop: '22px' } }, rm));
+        host.appendChild(row);
+      });
+    }
+    repaintLangs();
+    const bar = el('div', { className: 'kb-actbar', style: { marginTop: '10px' } });
+    bar.appendChild(el('button', { className: 'kb-btn kb-btn--dashed',
+      onClick: () => { work.languages.push({ code: '', name: '' }); repaintLangs(); Object.values(tplRepaint).forEach(fn => fn && fn()); } }, S('add-language')));
+    box.appendChild(bar);
+    return box;
+  }
+
+  // Template + signatures editor for money record types
+  function templateSection(blockKey) {
+    const box = el('div');
+    work[blockKey] = work[blockKey] || {};
+
+    // Build token lists (field tokens depend on work[blockKey].fields, not on languages)
+    const personKind = blockKey === 'donation' ? 'donor' : 'beneficiary';
+    const td = (token, desc) => ({ token, desc });
+    function buildCommonTokens() {
+      const common = [
+        td(personKind + '-name', 'Full name of the linked ' + personKind),
+        td(personKind + '-id',   'ID of the linked ' + personKind),
+        td('fund-name',       'Name of the fund'),
+        td('reference',       'Record reference number'),
+        td('amount',          'Formatted amount with currency'),
+        td('generated-date',  'Date the document was generated'),
+      ];
+      (work[blockKey].fields || []).forEach(f => {
+        if (f.fieldname) common.push(td(f.fieldname, f.label || f.fieldname));
+      });
+      return common;
+    }
+
+    // Helper: label row with "Available tokens" link
+    function fieldWithLink(labelText, tokenList, input) {
+      const f = el('div', { className: 'kb-field' });
+      const hdr = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } });
+      hdr.appendChild(el('span', { className: 'kb-label' }, labelText));
+      const link = el('button', { type: 'button', style: {
+        background: 'none', border: 'none', padding: '0', cursor: 'pointer',
+        color: 'var(--accent)', fontSize: 'var(--fs-small)', textDecoration: 'underline' },
+        onClick: () => showTokensModal(tokenList) }, S('available-tokens'));
+      hdr.appendChild(link);
+      f.append(hdr, input);
+      return f;
+    }
+
+    // Signatures count (static — doesn't change with languages)
+    const sigGrid = el('div', { className: 'kb-grid cols-2', style: { marginBottom: '12px' } });
+    const sigSel = el('select', { className: 'kb-select' });
+    [['1', '1'], ['2', '2']].forEach(([v, lab]) => {
+      const o = el('option', { value: v }, lab);
+      if (String(work[blockKey].signatures || 1) === v) o.selected = true;
+      sigSel.appendChild(o);
+    });
+    sigSel.addEventListener('change', () => { work[blockKey].signatures = parseInt(sigSel.value); });
+    sigGrid.appendChild(field('Signatures', sigSel));
+    box.appendChild(sigGrid);
+
+    // Dynamic host — sig labels + template textareas; rebuilt when languages change
+    const dynHost = el('div');
+    box.appendChild(dynHost);
+
+    function repaintContent() {
+      dynHost.innerHTML = '';
+      const langs = work.languages || [];
+      const effectiveLangs = langs.length >= 2 ? langs : (langs.length === 1 ? langs : [{ code: null, name: '' }]);
+      const commonTokens = buildCommonTokens();
+      const sigTokenDefs = commonTokens;
+      const tplTokenDefs = [...commonTokens,
+        td('logo',       'Fund logo image (from assets/logo.*)'),
+        td('signatures', 'Signature block(s) as configured'),
+      ];
+
+      // Signature labels (one textarea per language, or single if ≤1 language)
+      const labelHost = el('div', { style: { marginBottom: '12px' } });
+      effectiveLangs.forEach(lang => {
+        const rawLabels = (() => {
+          const sl = work[blockKey]['signature-labels'];
+          if (!sl) return [];
+          if (Array.isArray(sl)) return sl;
+          if (lang.code && typeof sl === 'object') return sl[lang.code] || [];
+          return [];
+        })();
+        const prefix = langs.length >= 2 ? lang.name + ' · ' : '';
+        const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 3,
+          placeholder: 'One label per line' });
+        ta.value = rawLabels.join('\n');
+        ta.addEventListener('input', () => {
+          const vals = ta.value.split('\n').map(s => s.trimEnd()).filter((_, i, a) => i < a.length - 1 || s.trim());
+          if (langs.length >= 2) {
+            if (typeof work[blockKey]['signature-labels'] !== 'object' || Array.isArray(work[blockKey]['signature-labels']))
+              work[blockKey]['signature-labels'] = {};
+            work[blockKey]['signature-labels'][lang.code] = vals;
+          } else {
+            work[blockKey]['signature-labels'] = vals;
+          }
+        });
+        labelHost.appendChild(fieldWithLink(prefix + 'Signature labels', sigTokenDefs, ta));
+      });
+      dynHost.appendChild(labelHost);
+
+      // Template textarea(s)
+      effectiveLangs.forEach(lang => {
+        const curTpl = (() => {
+          const t = work[blockKey].template;
+          if (!t) return '';
+          if (typeof t === 'string') return t;
+          if (lang.code && typeof t === 'object') return t[lang.code] || '';
+          return Object.values(t)[0] || '';
+        })();
+        const labelText = S('cfg-template') + (langs.length >= 2 ? ' — ' + lang.name + ' (' + lang.code + ')' : '');
+        const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 14 });
+        ta.value = curTpl;
+        ta.addEventListener('input', () => {
+          if (langs.length >= 2) {
+            if (typeof work[blockKey].template !== 'object' || Array.isArray(work[blockKey].template))
+              work[blockKey].template = {};
+            work[blockKey].template[lang.code] = ta.value;
+          } else {
+            work[blockKey].template = ta.value;
+          }
+        });
+        dynHost.appendChild(fieldWithLink(labelText, tplTokenDefs, ta));
+      });
+    }
+
+    tplRepaint[blockKey] = repaintContent;
+    repaintContent();
+    return box;
+  }
+
   // Field-list editor for one block
-  function fieldsSection(blockKey, withPrints) {
+  function fieldsSection(blockKey) {
     const box = el('div');
     work[blockKey] = work[blockKey] || {};
     work[blockKey].fields = work[blockKey].fields || [];
@@ -2094,11 +2757,6 @@ function buildConfigTab() {
     const bar = el('div', { className: 'kb-actbar', style: { marginTop: '10px' } });
     bar.appendChild(el('button', { className: 'kb-btn kb-btn--dashed', onClick: () => { work[blockKey].fields.push({ fieldname: '', label: '', type: 'text' }); repaint(); } }, S('add-field')));
     box.appendChild(bar);
-    if (withPrints) {
-      const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 3, value: (work[blockKey].prints || []).join('\n') });
-      ta.addEventListener('input', () => { work[blockKey].prints = ta.value.split('\n').map(s => s.trim()).filter(Boolean); });
-      box.appendChild(el('div', { style: { marginTop: '12px' } }, field(S('prints-label'), ta)));
-    }
     return box;
   }
 
@@ -2164,15 +2822,18 @@ function buildConfigTab() {
   }
 
   card.appendChild(makeAccordion([
-    { label: S('cfg-fund'), content: fundSection() },
-    { label: S('cfg-modes'), content: modesSection() },
-    { label: S('cfg-beneficiary'), content: fieldsSection('beneficiary', false) },
-    { label: S('cfg-donor'), content: fieldsSection('donor', false) },
-    { label: S('cfg-donation'), content: fieldsSection('donation', true) },
-    { label: S('cfg-disbursement'), content: fieldsSection('disbursement', true) },
-    { label: S('cfg-lists'), content: listsSection() },
-    { label: S('cfg-theme'), content: themeSection() },
-    { label: S('cfg-raw'), content: rawSection() },
+    { label: S('cfg-fund'),         content: fundSection() },
+    { label: S('cfg-languages'),    content: languagesSection() },
+    { label: S('cfg-modes'),        content: modesSection() },
+    { label: S('cfg-beneficiary'),  content: fieldsSection('beneficiary') },
+    { label: S('cfg-donor'),        content: fieldsSection('donor') },
+    { label: S('cfg-donation'),     content: fieldsSection('donation') },
+    { label: S('cfg-template') + ' — ' + S('tab-donation'),     content: templateSection('donation') },
+    { label: S('cfg-disbursement'), content: fieldsSection('disbursement') },
+    { label: S('cfg-template') + ' — ' + S('tab-disbursement'), content: templateSection('disbursement') },
+    { label: S('cfg-lists'),        content: listsSection() },
+    { label: S('cfg-theme'),        content: themeSection() },
+    { label: S('cfg-raw'),          content: rawSection() },
   ], { openAllLabel: S('open-all'), closeAllLabel: S('close-all') }));
 
   const saveNote = el('div', { style: { marginTop: '10px' } });
@@ -2217,14 +2878,17 @@ function render() {
   const wrap = el('div', { className: 'kb-wrap' });
   wrap.append(buildToolbar(), buildHeader());
 
-  const tabs = makeTabs([
+  const showCfgTab = !STATE.ledger || (STATE.ledger.config['show-config-tab'] !== false && STATE.ledger.config['show-config-tab'] !== 'no');
+  const tabDefs = [
     { label: S('tab-dashboard'), content: buildDashboard() },
     { label: S('tab-disbursement'), content: buildMoneyTab('disbursement') },
     { label: S('tab-beneficiary'), content: buildPersonTab('beneficiary') },
     { label: S('tab-donation'), content: buildMoneyTab('donation') },
     { label: S('tab-donor'), content: buildPersonTab('donor') },
-    { label: S('tab-configuration'), content: buildConfigTab() },
-  ], { defaultIndex: STATE.tab });
+    ...(showCfgTab ? [{ label: S('tab-configuration'), content: buildConfigTab() }] : []),
+  ];
+  if (!showCfgTab && STATE.tab >= tabDefs.length) STATE.tab = 0;
+  const tabs = makeTabs(tabDefs, { defaultIndex: STATE.tab });
   // Remember the active tab across re-renders.
   $$('.kb-tab', tabs).forEach((btn, i) => btn.addEventListener('click', () => { STATE.tab = i; }));
   wrap.appendChild(tabs);
@@ -2249,6 +2913,7 @@ try {
   initFontScale();
   lang = localStorage.getItem('fundledger-lang') || CFG['default-code'] || 'en';
   applyLang(lang);
+  await Promise.all([loadAppConfig(), tryLoadLogo()]);
   await tryReconnect();   // silent if permission is still granted
   render();
 } catch (e) {
