@@ -60,3 +60,15 @@ on `main`.
 - **Theme and font-scale controls**, persisted to `localStorage`.
 - **Inline boot config** near the top of `index.html` (branding + all UI
   strings) — works over `file://` with no server required.
+- **Logo in generated documents**: place `logo.png`, `logo.jpg`, or `logo.svg`
+  in the ledger folder root; loaded via File System Access API when the ledger
+  connects and embedded base64 in every receipt. Works on `file://` and HTTP.
+- **Documents always render in light mode** (`color-scheme: only light`):
+  receipts show black text on white regardless of the OS dark-mode setting or
+  any embedded theme's dark palette.
+- **Configurable document footer**: `footer:` key under `documents:` in
+  `config.yml` adds markdown-formatted text below every generated receipt,
+  separated by a horizontal rule. Supports `{tokens}` and per-language maps.
+  Editable in the Config tab "Document footer" section.
+- **Config reference** at `docs/config.md`: full documentation for every key
+  in `config.yml`.
