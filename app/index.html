@@ -534,6 +534,9 @@ drop-down-lists:
 # Document layout
 documents:
   padding-top-print:          # top margin before first line when printing / saving as PDF (e.g. 2cm)
+  # logo: yes                 # yes|no — place logo.png (or .jpg/.svg) in the ledger folder root
+  # footer: |                 # optional markdown footer appended below every receipt (supports {tokens})
+  #   Confidential — {fund-name}
 
 # Languages — define at least one. Each entry: code + name (required),
 # direction (ltr|rtl), line-height, font (e.g. bunny:Sarabun:300,400).
@@ -616,8 +619,7 @@ async function loadAppConfig() {
   } catch (e) { /* file:// or missing — silently skip */ }
 }
 
-/* Load the app logo as a base64 data URL so it can be embedded in
- * generated HTML files that may live in sub-directories of the ledger. */
+/* Load the app logo via fetch (works over HTTP, silently fails on file://). */
 async function tryLoadLogo() {
   for (const src of ['assets/logo.png', 'assets/logo.jpg', 'assets/logo.svg']) {
     try {
@@ -629,6 +631,27 @@ async function tryLoadLogo() {
         rd.onload = () => res(rd.result);
         rd.onerror = rej;
         rd.readAsDataURL(blob);
+      });
+      return;
+    } catch (e) { /* try next extension */ }
+  }
+}
+
+/* Load the logo from the open ledger folder via File System Access API.
+ * Called after STATE.ledger is set; used when running on file:// where
+ * fetch() cannot reach assets/. The logo file (logo.png, logo.jpg, or
+ * logo.svg) must be placed in the ledger folder root. */
+async function tryLoadLedgerLogo() {
+  if (!STATE.ledger || !STATE.ledger.handle || LOGO_DATA_URL) return;
+  for (const name of ['logo.png', 'logo.jpg', 'logo.svg']) {
+    try {
+      const fh = await STATE.ledger.handle.getFileHandle(name);
+      const file = await fh.getFile();
+      LOGO_DATA_URL = await new Promise((res, rej) => {
+        const rd = new FileReader();
+        rd.onload = () => res(rd.result);
+        rd.onerror = rej;
+        rd.readAsDataURL(file);
       });
       return;
     } catch (e) { /* try next extension */ }
@@ -850,6 +873,7 @@ async function connectLedger(handle) {
 
     STATE.ledger = { handle, name: handle.name, config: lcfg, index };
     STATE.pendingHandle = null;
+    await tryLoadLedgerLogo();
     await idbSet('root', handle);
     if (seeded) {
       await appendChangelog('ledger-created', '-', 'Ledger folder initialised');
@@ -1550,6 +1574,10 @@ function documentHtml(md, title, docsConfig, logoDataUrl, langSpec) {
     : '';
   html = html.replace(/(?:<p>)?\{logo\}(?:<\/p>)?/gi, logoHtml);
 
+  const footerHtml = docsConfig._footer
+    ? `<div class="doc-foot">${markdown(docsConfig._footer)}</div>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="${esc(langCode)}" dir="${esc(langDir)}">
 <head>
@@ -1557,7 +1585,7 @@ function documentHtml(md, title, docsConfig, logoDataUrl, langSpec) {
 <title>${esc(title)}</title>
 ${fontLinks}
 <style>
-${themeCss}:root{--doc-accent:#2f6fed;--doc-text:#14181e;--doc-text-muted:#5f6975;--doc-bg:#fff;--doc-surface:#f4f6fa;--doc-border:#eef1f5;}
+${themeCss}:root{color-scheme:only light;--doc-accent:#2f6fed;--doc-text:#14181e;--doc-text-muted:#5f6975;--doc-bg:#fff;--doc-surface:#f4f6fa;--doc-border:#eef1f5;}
 *{box-sizing:border-box;}
 body{font-family:${fontBody};font-size:${fontSize}px;margin:0;padding:34px;color:var(--doc-text);background:var(--doc-bg);line-height:${lineHeight};direction:${langDir};}
 .sheet{max-width:${maxW};margin:0 auto;}
@@ -1571,7 +1599,7 @@ p{margin:8px 0;}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,
 </style>
 </head>
 <body><div class="sheet">${html}
-</div></body>
+${footerHtml}</div></body>
 </html>`;
 }
 function printHtml(html) {
@@ -1692,6 +1720,14 @@ async function saveMoneyRecord(kind, form) {
     return [];
   })();
   docsConfig._sigLabels = rawLabels.map(l => fillTemplate(String(l), tokens));
+
+  // Footer: optional per-language markdown, token-substituted
+  const footerVal = docsConfig.footer;
+  const footerMd = typeof footerVal === 'string' ? footerVal
+    : (footerVal && typeof footerVal === 'object'
+        ? ((langCode && footerVal[langCode]) || Object.values(footerVal)[0] || null)
+        : null);
+  if (footerMd) docsConfig._footer = fillTemplate(footerMd, tokens);
 
   const docs = [];
   if (md) {
@@ -2784,6 +2820,65 @@ function buildConfigTab() {
     return box;
   }
 
+  // Document footer (markdown, optional per-language)
+  function footerSection() {
+    const box = el('div');
+    work.documents = work.documents || {};
+    const dynHost = el('div');
+
+    const footerTokenDefs = [
+      { token: 'fund-name',      desc: 'Name of the fund' },
+      { token: 'reference',      desc: 'Record reference number' },
+      { token: 'amount',         desc: 'Formatted amount with currency' },
+      { token: 'generated-date', desc: 'Date the document was generated' },
+    ];
+
+    function repaint() {
+      dynHost.innerHTML = '';
+      const langs = work.languages || [];
+      const effectiveLangs = langs.length >= 2 ? langs : [{ code: null, name: '' }];
+      effectiveLangs.forEach(lang => {
+        const cur = (() => {
+          const v = work.documents.footer;
+          if (!v) return '';
+          if (typeof v === 'string') return v;
+          if (lang.code && typeof v === 'object') return v[lang.code] || '';
+          return Object.values(v)[0] || '';
+        })();
+        const labelText = 'Document footer' + (langs.length >= 2 ? ' — ' + lang.name + ' (' + lang.code + ')' : '');
+        const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 5 });
+        ta.value = cur;
+        ta.addEventListener('input', () => {
+          if (langs.length >= 2) {
+            if (typeof work.documents.footer !== 'object' || Array.isArray(work.documents.footer))
+              work.documents.footer = {};
+            work.documents.footer[lang.code] = ta.value;
+          } else {
+            if (ta.value) work.documents.footer = ta.value;
+            else delete work.documents.footer;
+          }
+        });
+        const f = el('div', { className: 'kb-field' });
+        const hdr = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } });
+        hdr.appendChild(el('span', { className: 'kb-label' }, labelText));
+        const tokLink = el('button', { type: 'button', style: {
+          background: 'none', border: 'none', padding: '0', cursor: 'pointer',
+          color: 'var(--accent)', fontSize: 'var(--fs-small)', textDecoration: 'underline' },
+          onClick: () => showTokensModal(footerTokenDefs) }, S('available-tokens'));
+        hdr.appendChild(tokLink);
+        f.append(hdr, ta);
+        dynHost.appendChild(f);
+      });
+    }
+
+    tplRepaint['_footer'] = repaint;
+    repaint();
+    box.appendChild(dynHost);
+    box.appendChild(el('p', { className: 'fl-muted', style: { marginTop: '8px', fontSize: 'var(--fs-small)' } },
+      'Markdown appended below every generated receipt, separated by a line. Supports {tokens}. Leave blank for no footer.'));
+    return box;
+  }
+
   // Theme (inline mdcms block)
   let themeTa;
   function themeSection() {
@@ -2831,6 +2926,7 @@ function buildConfigTab() {
     { label: S('cfg-disbursement'), content: fieldsSection('disbursement') },
     { label: S('cfg-template') + ' — ' + S('tab-disbursement'), content: templateSection('disbursement') },
     { label: S('cfg-lists'),        content: listsSection() },
+    { label: 'Document footer',     content: footerSection() },
     { label: S('cfg-theme'),        content: themeSection() },
     { label: S('cfg-raw'),          content: rawSection() },
   ], { openAllLabel: S('open-all'), closeAllLabel: S('close-all') }));

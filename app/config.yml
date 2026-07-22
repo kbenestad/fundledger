@@ -46,3 +46,11 @@ documents:
   # Include CSS units. Use px or em for screen; cm or mm for print/PDF.
   max-width-web: 720px  # document width for screen view
   max-width-pdf: 17cm   # document width for print / save-as-PDF
+
+  # ── Footer ──────────────────────────────────────────────────────────────────
+  # Optional markdown text appended below every generated receipt, separated by
+  # a horizontal rule. Supports {tokens} (e.g. {fund-name}, {reference}).
+  # For per-language footers use a mapping: { en: "...", th: "..." }
+  # Leave blank (or omit) for no footer.
+  # footer: |
+  #   Confidential — {fund-name}
