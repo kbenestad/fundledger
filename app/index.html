@@ -534,6 +534,7 @@ drop-down-lists:
 # Document layout
 documents:
   padding-top-print:          # top margin before first line when printing / saving as PDF (e.g. 2cm)
+  # logo: yes                 # yes|no — place logo.png (or .jpg/.svg) in the ledger folder root
 
 # Languages — define at least one. Each entry: code + name (required),
 # direction (ltr|rtl), line-height, font (e.g. bunny:Sarabun:300,400).
@@ -616,8 +617,7 @@ async function loadAppConfig() {
   } catch (e) { /* file:// or missing — silently skip */ }
 }
 
-/* Load the app logo as a base64 data URL so it can be embedded in
- * generated HTML files that may live in sub-directories of the ledger. */
+/* Load the app logo via fetch (works over HTTP, silently fails on file://). */
 async function tryLoadLogo() {
   for (const src of ['assets/logo.png', 'assets/logo.jpg', 'assets/logo.svg']) {
     try {
@@ -629,6 +629,27 @@ async function tryLoadLogo() {
         rd.onload = () => res(rd.result);
         rd.onerror = rej;
         rd.readAsDataURL(blob);
+      });
+      return;
+    } catch (e) { /* try next extension */ }
+  }
+}
+
+/* Load the logo from the open ledger folder via File System Access API.
+ * Called after STATE.ledger is set; used when running on file:// where
+ * fetch() cannot reach assets/. The logo file (logo.png, logo.jpg, or
+ * logo.svg) must be placed in the ledger folder root. */
+async function tryLoadLedgerLogo() {
+  if (!STATE.ledger || !STATE.ledger.handle || LOGO_DATA_URL) return;
+  for (const name of ['logo.png', 'logo.jpg', 'logo.svg']) {
+    try {
+      const fh = await STATE.ledger.handle.getFileHandle(name);
+      const file = await fh.getFile();
+      LOGO_DATA_URL = await new Promise((res, rej) => {
+        const rd = new FileReader();
+        rd.onload = () => res(rd.result);
+        rd.onerror = rej;
+        rd.readAsDataURL(file);
       });
       return;
     } catch (e) { /* try next extension */ }
@@ -850,6 +871,7 @@ async function connectLedger(handle) {
 
     STATE.ledger = { handle, name: handle.name, config: lcfg, index };
     STATE.pendingHandle = null;
+    await tryLoadLedgerLogo();
     await idbSet('root', handle);
     if (seeded) {
       await appendChangelog('ledger-created', '-', 'Ledger folder initialised');
@@ -1557,7 +1579,7 @@ function documentHtml(md, title, docsConfig, logoDataUrl, langSpec) {
 <title>${esc(title)}</title>
 ${fontLinks}
 <style>
-${themeCss}:root{--doc-accent:#2f6fed;--doc-text:#14181e;--doc-text-muted:#5f6975;--doc-bg:#fff;--doc-surface:#f4f6fa;--doc-border:#eef1f5;}
+${themeCss}:root{color-scheme:only light;--doc-accent:#2f6fed;--doc-text:#14181e;--doc-text-muted:#5f6975;--doc-bg:#fff;--doc-surface:#f4f6fa;--doc-border:#eef1f5;}
 *{box-sizing:border-box;}
 body{font-family:${fontBody};font-size:${fontSize}px;margin:0;padding:34px;color:var(--doc-text);background:var(--doc-bg);line-height:${lineHeight};direction:${langDir};}
 .sheet{max-width:${maxW};margin:0 auto;}
