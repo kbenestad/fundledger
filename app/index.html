@@ -1448,7 +1448,7 @@ button.lnk:hover{opacity:.75;}
   <p id="ov-sub"></p>
   <div id="ov-fields"></div>
   <div id="ov-docs"></div>
-  <div id="ov-path" style="display:none"><span id="ov-path-text"></span><button onclick="navigator.clipboard.writeText(document.getElementById('ov-path-text').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button></div>
+  <div id="ov-path" style="display:none"><span id="ov-path-text"></span><span id="ov-path-btns" style="display:flex;gap:6px;flex-shrink:0;"></span></div>
   <div id="ov-foot"><button onclick="document.getElementById('ov').classList.remove('open')">Close</button></div>
 </div></div>
 <div class="doc">
@@ -1468,24 +1468,79 @@ button.lnk:hover{opacity:.75;}
 <script>
 (function(){
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+  /* Open a ledger file by relative path.
+   * If opened from the app (window.opener), relay via postMessage so the app
+   * can fetch the file via File System Access API and return a blob URL.
+   * If opened directly from disk (file://), relative paths work natively. */
+  function openDoc(relPath){
+    if(window.opener){
+      window.opener.postMessage({type:'fundledger:open',path:relPath},'*');
+    } else {
+      window.open(relPath,'_blank');
+    }
+  }
+
+  /* Receive blob URL from the app in response to fundledger:open. */
+  window.addEventListener('message',function(e){
+    if(e.data&&e.data.type==='fundledger:file')window.open(e.data.url,'_blank');
+  });
+
+  function mkBtn(label,onclick){
+    var b=document.createElement('button');
+    b.textContent=label;
+    b.style.cssText='background:#2f6fed;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer;white-space:nowrap;';
+    b.addEventListener('click',onclick);
+    return b;
+  }
+
+  /* Delegated handler for doc-link buttons in the overlay */
   document.addEventListener('click',function(e){
+    var dl=e.target.closest('button.doc-lnk');
+    if(dl){openDoc(dl.getAttribute('data-path'));return;}
+
     var btn=e.target.closest('button.lnk');
     if(!btn)return;
     var rec=JSON.parse(btn.getAttribute('data-rec'));
     var isMoneyRec=!!rec.reference;
     document.getElementById('ov-title').textContent=rec.reference||rec.id||'';
     document.getElementById('ov-sub').textContent=isMoneyRec
-      ?(rec.date+(rec.personId?' · '+rec.personId+' — '+rec.personName:''))
+      ?(rec.date+(rec.personId?' \xb7 '+rec.personId+' — '+rec.personName:''))
       :(rec.created?'Created '+rec.created:'');
     var rows=(rec.fields||[]).map(function(f){return'<tr><td>'+esc(f.label)+'</td><td>'+esc(f.value)+'</td></tr>';}).join('');
     document.getElementById('ov-fields').innerHTML=rows?'<table>'+rows+'</table>':'';
+
+    /* Documents: clickable buttons using relative paths */
     var docs=rec.documents||[];
     document.getElementById('ov-docs').innerHTML=docs.length
-      ?'<h4>Documents</h4><ul>'+docs.map(function(d){return'<li>'+esc(d)+'</li>';}).join('')+'</ul>':'';
+      ?'<h4>Documents</h4><ul>'+docs.map(function(d){
+          var path=(rec.folder?rec.folder+'/':'')+d;
+          return '<li><button class="lnk doc-lnk" data-path="'+path.replace(/"/g,'&quot;')+'">'+esc(d)+'</button></li>';
+        }).join('')+'</ul>':'';
+
+    /* Path display with Copy; add Open for person files (rec.file is an HTML file) */
     var pathEl=document.getElementById('ov-path');
     var pathText=document.getElementById('ov-path-text');
+    var pathBtns=document.getElementById('ov-path-btns');
     var path=rec.folder||rec.file||'';
-    if(path){pathText.textContent=path;pathEl.style.display='flex';}else{pathEl.style.display='none';}
+    pathBtns.innerHTML='';
+    if(path){
+      pathText.textContent=path;
+      pathEl.style.display='flex';
+      var copyBtn=mkBtn('Copy',function(){
+        navigator.clipboard.writeText(path).then(function(){
+          copyBtn.textContent='Copied!';setTimeout(function(){copyBtn.textContent='Copy';},1500);
+        });
+      });
+      pathBtns.appendChild(copyBtn);
+      /* If path points to a file (person records), add Open button */
+      if(rec.file){
+        var openBtn=mkBtn('Open',function(){openDoc(rec.file);});
+        pathBtns.appendChild(openBtn);
+      }
+    } else {
+      pathEl.style.display='none';
+    }
     document.getElementById('ov').classList.add('open');
   });
   document.getElementById('ov').addEventListener('click',function(e){
@@ -2992,6 +3047,29 @@ function render() {
   app.appendChild(wrap);
   updateThemeIcon();
 }
+
+/* ── File relay for Ledger.html windows ─────────────────────────────────── */
+/* Ledger.html is opened as a blob URL, so its relative paths don't resolve.
+ * It sends postMessage({type:'fundledger:open', path:relPath}) to window.opener
+ * (this app); we read the file via FSA and respond with a blob URL it can open. */
+window.addEventListener('message', async function(e) {
+  if (!e.data || e.data.type !== 'fundledger:open') return;
+  if (!STATE.ledger) return;
+  const relPath = String(e.data.path || '');
+  if (!relPath || /\.\./.test(relPath)) return; // reject traversal attempts
+  try {
+    const parts = relPath.split('/').filter(Boolean);
+    let dir = STATE.ledger.handle;
+    for (let i = 0; i < parts.length - 1; i++) dir = await dir.getDirectoryHandle(parts[i]);
+    const fh = await dir.getFileHandle(parts[parts.length - 1]);
+    const file = await fh.getFile();
+    const text = await file.text();
+    const blob = new Blob([text], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    e.source.postMessage({ type: 'fundledger:file', url }, '*');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (err) { /* file not found or permission denied — silently ignore */ }
+});
 
 /* ── Boot ────────────────────────────────────────────────────────────────── */
 try {
