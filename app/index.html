@@ -531,6 +531,10 @@ drop-down-lists:
   - name: case-statuses
     values: ["asylum-seeker, Asylum seeker", "refugee, Recognised refugee", "resettlement, Resettlement processing", "closed, Case closed"]
 
+# Document layout
+documents:
+  padding-top-print:          # top margin before first line when printing / saving as PDF (e.g. 2cm)
+
 # Languages — define at least one. Each entry: code + name (required),
 # direction (ltr|rtl), line-height, font (e.g. bunny:Sarabun:300,400).
 # If two or more are defined, a language selector appears on each form.
@@ -1377,20 +1381,52 @@ function buildLedgerHtml() {
   const index = idx();
   const f = fundCfg();
   const t = totalsOf(index);
+  // Encode record entries into data attributes so the JS overlay can read them without re-parsing JSON.
+  const dataAttr = (obj) => 'data-rec=\'' + JSON.stringify(obj).replace(/'/g, '&#39;') + '\'';
   const personTable = (list) => list.length ? `<table><tr><th>${esc(S('col-id'))}</th><th>${esc(S('col-name'))}</th><th>${esc(S('col-created'))}</th></tr>
-    ${list.map(p => `<tr><td><a href="${esc(p.file)}">${esc(p.id)}</a></td><td>${esc(p.name)}</td><td>${esc(p.created)}</td></tr>`).join('')}</table>`
+    ${list.map(p => `<tr><td><button class="lnk" ${dataAttr({id: p.id, name: p.name, file: p.file, created: p.created, fields: p.fields || []})}>${esc(p.id)}</button></td><td>${esc(p.name)}</td><td>${esc(p.created)}</td></tr>`).join('')}</table>`
     : `<p class="sub">${esc(S('none-yet'))}</p>`;
   const moneyTable = (list) => list.length ? `<table><tr><th>${esc(S('col-reference'))}</th><th>${esc(S('col-date'))}</th><th>${esc(S('col-person'))}</th><th style="text-align:right">${esc(S('col-amount'))}</th></tr>
-    ${list.map(r => `<tr><td><a href="${esc(r.folder)}/record.html">${esc(r.reference)}</a></td><td>${esc(r.date)}</td><td>${esc(r.personId)} — ${esc(r.personName)}</td><td class="num">${esc(fmtMoney(r.amount))}</td></tr>`).join('')}</table>`
+    ${list.map(r => `<tr><td><button class="lnk" ${dataAttr({reference: r.reference, date: r.date, personId: r.personId, personName: r.personName, amount: r.amount, folder: r.folder, fields: r.fields || [], documents: r.documents || []})}>${esc(r.reference)}</button></td><td>${esc(r.date)}</td><td>${esc(r.personId)} — ${esc(r.personName)}</td><td class="num">${esc(fmtMoney(r.amount))}</td></tr>`).join('')}</table>`
     : `<p class="sub">${esc(S('none-yet'))}</p>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(f.name || 'Fund Ledger')} — ${esc(S('ledger-title'))}</title>
-<style>${REC_CSS}</style>
+<style>
+${REC_CSS}
+button.lnk{background:none;border:none;padding:0;cursor:pointer;color:var(--accent,#2f6fed);text-decoration:underline;font:inherit;}
+button.lnk:hover{opacity:.75;}
+#ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center;}
+#ov.open{display:flex;}
+#ov-box{background:#fff;border-radius:8px;max-width:560px;width:calc(100% - 40px);max-height:90vh;overflow-y:auto;padding:28px 28px 20px;box-shadow:0 8px 32px rgba(0,0,0,.22);}
+#ov-title{font-size:18px;font-weight:700;margin:0 0 4px;}
+#ov-sub{color:#5f6975;font-size:13px;margin:0 0 16px;}
+#ov-fields table{width:100%;border-collapse:collapse;}
+#ov-fields td{padding:5px 8px 5px 0;vertical-align:top;font-size:14px;border-bottom:1px solid #eef1f5;}
+#ov-fields td:first-child{color:#5f6975;width:42%;white-space:nowrap;}
+#ov-docs{margin-top:14px;}
+#ov-docs h4{font-size:13px;font-weight:600;color:#5f6975;margin:0 0 6px;text-transform:uppercase;letter-spacing:.04em;}
+#ov-docs ul{margin:0;padding:0 0 0 16px;}
+#ov-docs li{font-size:13px;margin:2px 0;}
+#ov-path{margin-top:14px;background:#f4f6fa;border-radius:5px;padding:8px 10px;font-family:monospace;font-size:12px;word-break:break-all;display:flex;align-items:center;gap:8px;}
+#ov-path span{flex:1;}
+#ov-path button{flex-shrink:0;background:#2f6fed;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer;}
+#ov-path button:active{opacity:.8;}
+#ov-foot{margin-top:18px;text-align:right;}
+#ov-foot button{background:#2f6fed;color:#fff;border:none;border-radius:5px;padding:7px 18px;font-size:14px;cursor:pointer;}
+</style>
 </head>
 <body>
+<div id="ov"><div id="ov-box">
+  <p id="ov-title"></p>
+  <p id="ov-sub"></p>
+  <div id="ov-fields"></div>
+  <div id="ov-docs"></div>
+  <div id="ov-path" style="display:none"><span id="ov-path-text"></span><button onclick="navigator.clipboard.writeText(document.getElementById('ov-path-text').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button></div>
+  <div id="ov-foot"><button onclick="document.getElementById('ov').classList.remove('open')">Close</button></div>
+</div></div>
 <div class="doc">
   <h1>${esc(f.name || 'Fund Ledger')}</h1>
   <div class="sub">${esc(S('ledger-title'))} · ${esc(S('rec-generated-on'))} ${esc(new Date().toISOString().slice(0, 16).replace('T', ' '))}</div>
@@ -1405,6 +1441,37 @@ function buildLedgerHtml() {
   <div class="idxsec"><h2>${esc(S('count-donors'))} (${index.donors.length})</h2>${personTable(index.donors)}</div>
   <div class="foot">${esc(S('ledger-note'))}</div>
 </div>
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  document.addEventListener('click',function(e){
+    var btn=e.target.closest('button.lnk');
+    if(!btn)return;
+    var rec=JSON.parse(btn.getAttribute('data-rec'));
+    var isMoneyRec=!!rec.reference;
+    document.getElementById('ov-title').textContent=rec.reference||rec.id||'';
+    document.getElementById('ov-sub').textContent=isMoneyRec
+      ?(rec.date+(rec.personId?' · '+rec.personId+' — '+rec.personName:''))
+      :(rec.created?'Created '+rec.created:'');
+    var rows=(rec.fields||[]).map(function(f){return'<tr><td>'+esc(f.label)+'</td><td>'+esc(f.value)+'</td></tr>';}).join('');
+    document.getElementById('ov-fields').innerHTML=rows?'<table>'+rows+'</table>':'';
+    var docs=rec.documents||[];
+    document.getElementById('ov-docs').innerHTML=docs.length
+      ?'<h4>Documents</h4><ul>'+docs.map(function(d){return'<li>'+esc(d)+'</li>';}).join('')+'</ul>':'';
+    var pathEl=document.getElementById('ov-path');
+    var pathText=document.getElementById('ov-path-text');
+    var path=rec.folder||rec.file||'';
+    if(path){pathText.textContent=path;pathEl.style.display='flex';}else{pathEl.style.display='none';}
+    document.getElementById('ov').classList.add('open');
+  });
+  document.getElementById('ov').addEventListener('click',function(e){
+    if(e.target===this)this.classList.remove('open');
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape')document.getElementById('ov').classList.remove('open');
+  });
+})();
+</script>
 ${embedJson('ledger-index', index)}
 </body>
 </html>`;
@@ -1500,7 +1567,7 @@ h3{font-family:${fontHeading};font-size:${Math.round(fontSize*0.93)}px;margin:14
 p{margin:8px 0;}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}a{color:var(--doc-accent);}
 .doc-logo{max-width:${logoMaxW};height:auto;display:block;margin-bottom:16px;}
 .doc-foot{margin-top:28px;padding-top:10px;border-top:1px solid var(--doc-border);font-size:${footSz}px;color:var(--doc-text-muted);}
-@media print{body{padding:0;background:#fff;color:#000;}.sheet{max-width:${maxWPdf};}.doc-logo{max-width:${logoMaxWPdf};}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}}
+@media print{body{padding:${docsConfig['padding-top-print'] ? docsConfig['padding-top-print'] + ' 0 0' : '0'};background:#fff;color:#000;}.sheet{max-width:${maxWPdf};}.doc-logo{max-width:${logoMaxWPdf};}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}}
 </style>
 </head>
 <body><div class="sheet">${html}
@@ -1537,7 +1604,7 @@ async function savePerson(kind, values, fields, extras) {
     images: extras && extras.images || [],
     documents: [],
     jsonId: 'record-data',
-    jsonData: { kind, id, name: values.name || '', created: todayIso(), values,
+    jsonData: { kind, id, name: values.name || '', created: todayIso(), values, fieldRows,
       photo: extras && extras.photo || null, images: extras && extras.images || [] },
   });
   // 1) record file
@@ -1551,6 +1618,7 @@ async function savePerson(kind, values, fields, extras) {
     id, name: values.name || '', file: dirName + '/' + fileName, created: todayIso(),
     search: buildPersonSearch(kind, values),
     displayId: displayIdKey ? (values[displayIdKey] || '') : '',
+    fields: fieldRows,
   };
   (kind === 'beneficiary' ? idx().beneficiaries : idx().donors).push(entry);
   await writeLedgerIndex();
@@ -1609,8 +1677,8 @@ async function saveMoneyRecord(kind, form) {
     md = await readFileTextOrNull(tplDir, block.prints[0] + '.md');
   }
 
-  // docsConfig from app-level config.yml (APP_CFG), theme pre-loaded.
-  const docsConfig = Object.assign({}, (APP_CFG && APP_CFG.documents) || {});
+  // docsConfig: app-level config.yml first, ledger-level documents: overrides on top.
+  const docsConfig = Object.assign({}, (APP_CFG && APP_CFG.documents) || {}, STATE.ledger.config.documents || {});
   const docTheme = await loadDocTheme(docsConfig);
   if (docTheme) docsConfig['_theme'] = docTheme;
 
@@ -1644,7 +1712,7 @@ async function saveMoneyRecord(kind, form) {
     documents: docs.map(d => d.name),
     jsonId: 'record-data',
     jsonData: { kind, reference, personId: person.id, personName: person.name, date: recDate,
-      amount, values, documents: docs.map(d => d.name), created: todayIso() },
+      amount, values, fieldRows, documents: docs.map(d => d.name), created: todayIso() },
   });
   await writeFileText(folder, 'record.html', recHtml);
   // 2) changelog
@@ -1652,7 +1720,8 @@ async function saveMoneyRecord(kind, form) {
     (person.id ? person.id + ' ' : '') + fmtMoney(amount) + ' (' + parentName + '/' + folderName + ')');
   // 3) index last
   const entry = { reference, personId: person.id, personName: person.name, date: recDate, amount,
-    folder: parentName + '/' + folderName, created: todayIso() };
+    folder: parentName + '/' + folderName, created: todayIso(),
+    fields: fieldRows, documents: docs.map(d => d.name) };
   (kind === 'donation' ? idx().donations : idx().disbursements).push(entry);
   await writeLedgerIndex();
 
@@ -1675,6 +1744,7 @@ async function rebuildIndex() {
         id: data.id, name: data.name || '', file: dirName + '/' + entry.name, created: data.created || '',
         search: buildPersonSearch(kind, data.values),
         displayId: displayIdKey2 ? ((data.values || {})[displayIdKey2] || '') : '',
+        fields: data.fieldRows || [],
       });
       const n = parseInt(String(data.id).replace(/^[BD]-/, ''), 10);
       if (n > fresh.counters[kind]) fresh.counters[kind] = n;
@@ -1690,7 +1760,8 @@ async function rebuildIndex() {
       const data = extractEmbeddedJson(text, 'record-data');
       if (!data || data.kind !== kind) continue;
       fresh[listKey].push({ reference: data.reference, personId: data.personId || '', personName: data.personName || '',
-        date: data.date || '', amount: data.amount || 0, folder: dirName + '/' + entry.name, created: data.created || '' });
+        date: data.date || '', amount: data.amount || 0, folder: dirName + '/' + entry.name, created: data.created || '',
+        fields: data.fieldRows || [], documents: data.documents || [] });
     }
     fresh[listKey].sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }
@@ -2161,7 +2232,7 @@ async function updatePerson(kind, entry, values, fields, extras) {
     images: extras && extras.images || [],
     documents: [],
     jsonId: 'record-data',
-    jsonData: { kind, id: entry.id, name: values.name || '', created: entry.created, values,
+    jsonData: { kind, id: entry.id, name: values.name || '', created: entry.created, values, fieldRows,
       photo: extras && extras.photo || null, images: extras && extras.images || [] },
   });
   await writeFileText(dir, fileName, html);
@@ -2175,6 +2246,7 @@ async function updatePerson(kind, entry, values, fields, extras) {
       name: values.name || '',
       search: buildPersonSearch(kind, values),
       displayId: displayIdKey ? (values[displayIdKey] || '') : '',
+      fields: fieldRows,
     });
   }
   await writeLedgerIndex();
@@ -2584,8 +2656,8 @@ function buildConfigTab() {
         })();
         const prefix = langs.length >= 2 ? lang.name + ' · ' : '';
         const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 3,
-          placeholder: 'One label per line',
-          value: rawLabels.join('\n') });
+          placeholder: 'One label per line' });
+        ta.value = rawLabels.join('\n');
         ta.addEventListener('input', () => {
           const vals = ta.value.split('\n').map(s => s.trimEnd()).filter((_, i, a) => i < a.length - 1 || s.trim());
           if (langs.length >= 2) {
@@ -2610,7 +2682,8 @@ function buildConfigTab() {
           return Object.values(t)[0] || '';
         })();
         const labelText = S('cfg-template') + (langs.length >= 2 ? ' — ' + lang.name + ' (' + lang.code + ')' : '');
-        const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 14, value: curTpl });
+        const ta = el('textarea', { className: 'kb-textarea fl-mono', rows: 14 });
+        ta.value = curTpl;
         ta.addEventListener('input', () => {
           if (langs.length >= 2) {
             if (typeof work[blockKey].template !== 'object' || Array.isArray(work[blockKey].template))

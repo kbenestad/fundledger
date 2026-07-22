@@ -49,6 +49,12 @@ on `main`.
   tokens" modal), drop-down lists, mdcms theme block, raw YAML editor.
   Template and signature-label editors show per-language textareas when
   multiple languages are defined, updating live as languages are added.
+- **`padding-top-print`** key under `documents:` in `config.yml` sets the
+  top margin (e.g. `2cm`) above the first line when printing or saving as PDF.
+- **Ledger.html detail overlay**: clicking any reference, donation, disbursement,
+  beneficiary, or donor ID opens an in-page panel showing all field values, the
+  document list, and the record's folder/file path with a Copy button. Works
+  whether Ledger.html is opened from the app or directly from disk.
 - **Shared bizdocs design system** bundled in `app/assets/` (`style.css`,
   `ui.css`, `app.js`), kept byte-identical to bizdocs via `sync.sh`.
 - **Theme and font-scale controls**, persisted to `localStorage`.
