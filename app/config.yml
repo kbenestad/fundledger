@@ -15,8 +15,8 @@ documents:
   # and embeds it as base64 so saved HTML files remain self-contained.
   # Drop your logo file into assets/ alongside index.html.
   logo: yes
-  logo-max-width-web: 250px  # max-width for screen / browser view
-  logo-max-width-pdf: 7.5cm    # max-width in print / save-as-PDF
+  logo-max-width-web: 200px  # max-width for screen / browser view
+  logo-max-width-pdf: 5cm    # max-width in print / save-as-PDF
 
   # ── Web theme ──────────────────────────────────────────────────────────────
   # Optional mdcms theme applied to the screen rendering of generated documents.
@@ -36,8 +36,8 @@ documents:
   #   bunny:IBM Plex Serif:400,600
   #   google:Inter:400,600,700
   # Leave blank to use the browser's system font.
-  font-body:     bunny:IBM Plex Sans:300
-  font-heading:  bunny:IBM Plex Sans:600
+  font-body:     bunny:Schibsted Grotesk:300
+  font-heading:  bunny:Schibsted Grotesk:600
 
   font-size: 15  # body font size in px (screen)
   line-height: 1.6

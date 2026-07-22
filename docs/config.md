@@ -40,8 +40,8 @@ Controls generated receipts and acknowledgements.
 ```yaml
 documents:
   logo: yes
-  logo-max-width-web: 250px
-  logo-max-width-pdf: 7.5cm
+  logo-max-width-web: 200px
+  logo-max-width-pdf: 5cm
   padding-top-print:
   theme:
   font-body:
