@@ -82,6 +82,21 @@ is connected, so it works on both `file://` and `http://`.
 | `max-width-pdf` | CSS length | `17cm` | Sheet max-width in print / save-as-PDF. |
 | `padding-top-print` | CSS length | none | Top margin above the first line of content when printing. Example: `2cm`. |
 
+### Footer
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `footer` | markdown string | none | Markdown text appended below every generated receipt, separated by a horizontal rule. Supports `{tokens}` (same set as templates). Can be a plain string or a `{en: "...", th: "..."}` map for per-language footers. Leave blank or omit for no footer. |
+
+Example:
+```yaml
+documents:
+  footer: |
+    Confidential — {fund-name} · Reference {reference}
+
+    *This document is for internal use only.*
+```
+
 ### Theme
 
 | Key | Values | Default | Description |
