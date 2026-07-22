@@ -72,3 +72,8 @@ on `main`.
   Editable in the Config tab "Document footer" section.
 - **Config reference** at `docs/config.md`: full documentation for every key
   in `config.yml`.
+- **Clickable files in `Ledger.html`**: document links and person-record file
+  paths in the detail overlay are clickable. Uses a `postMessage` relay to the
+  parent app window (which reads the file via File System Access API and
+  returns a blob URL); falls back to native relative-path links when
+  `Ledger.html` is opened directly from disk on `file://`.
