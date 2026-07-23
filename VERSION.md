@@ -1,3 +1,3 @@
 **kbenestad/fundledger • Fund Ledger**
-**Version:** 1.1.1 - latest commit 0ad8d32
-**Last updated:** 22 July 2026
+**Version:** 1.2.0 - latest commit f75453b
+**Last updated:** 23 July 2026

@@ -35,7 +35,22 @@ fund:
 
 ## `documents:`
 
-Controls generated receipts and acknowledgements.
+Controls generated receipts and acknowledgements. Editable directly in the
+app's Configuration tab, under "Document layout" (and "Document footer" for
+`footer`) — clearing a field there deletes the key rather than saving a blank
+value.
+
+Every key here is optional and layered: the app-level `config.yml` (if the
+app is served over HTTP) provides a suite-wide default, the ledger's own
+`config.yml` overrides it for this ledger, and if neither sets a key the
+app's built-in default applies (see the tables below). **Leave a key
+commented out (or omit it) to inherit the layer below — don't leave it
+active with a blank value.** A key present with nothing after the colon
+(`padding-top-print:`) parses as YAML `null`, which is a real value; since
+the ledger's `documents:` block is merged in last, an explicit `null` there
+silently overrides whatever the app-level config set, with no error. This is
+also why the raw-YAML/config-editor workflow always drops an untouched key
+rather than writing it out blank.
 
 ```yaml
 documents:

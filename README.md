@@ -43,8 +43,8 @@ Ledger.html                  index + dashboard — the only file ever rewritten;
                              openable directly in a browser, no app needed
 config.yml                   fund, currency, entry modes, and every form field —
                              edited in the app's Configuration tab
-Donors/                      one file per donor      D-NNNN_Name.html
-Beneficiaries/               one file per beneficiary B-NNNN_Name.html
+Donors/                      one file per donor      <ID>_Name.html
+Beneficiaries/               one file per beneficiary <ID>_Name.html
 Donations/                   one folder per donation      YYYY-MM-DD_<id>_<REF>/
 Disbursements/               one folder per disbursement  (record.html + documents)
 Templates/                   markdown document templates with {fieldname} tokens

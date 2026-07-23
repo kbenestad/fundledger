@@ -14,12 +14,19 @@ on `main`.
   (donations, disbursements, balance); record counts; recent-activity feed;
   View Ledger button; Rebuild index; Close ledger.
 - **Immutable, append-only records**: beneficiaries/donors saved as
-  `B-NNNN.html` / `D-NNNN.html` person files; donations/disbursements saved
-  as dated `YYYY-MM-DD_<id>_<REF>/` folders containing `record.html` and any
+  `<ID>.html` person files (ID is a random 6-character code, the same
+  pattern used for donation/disbursement references — no B-/D- prefix or
+  per-kind counter); donations/disbursements saved as dated
+  `YYYY-MM-DD_<id>_<REF>/` folders containing `record.html` and any
   generated documents.
 - **`Ledger.html`**: metadata-only index (embedded JSON) + human-readable
   dashboard rewritten on every action; write order is record → changelog →
-  index; Rebuild-index action rescans all record folders.
+  index; Rebuild-index action rescans all record folders. Disbursements,
+  Beneficiaries, Donations, and Donors are separate tabs with matching
+  column widths; clicking a beneficiary or donor lists their linked
+  disbursements/donations (each opens that record's own detail); fund name
+  is shown above a fixed "Fund Ledger" heading; the "Generated" timestamp
+  uses local machine time with a UTC offset; stat amounts are right-aligned.
 - **Append-only changelog** at `Changelog/changelog.jsonl`.
 - **Config-driven forms** from the ledger's `config.yml`: field types `text`,
   `textarea`, `date` (past/future/range), `number` (ranges + currency
@@ -44,13 +51,24 @@ on `main`.
   cardholder photo and card scans embedded base64 in the person file.
 - **Person list with edit**: beneficiary/donor lists collapsed in an accordion;
   display-ID column; Edit button loads the existing record for update.
-- **Configuration tab accordion**: fund & currency, languages, entry modes,
-  per-block field editors, template + signature editors (with "Available
-  tokens" modal), drop-down lists, mdcms theme block, raw YAML editor.
-  Template and signature-label editors show per-language textareas when
-  multiple languages are defined, updating live as languages are added.
+- **Configuration tab accordion**: fund & currency (plus a `show-config-tab`
+  toggle), languages, entry modes, per-block field editors, template +
+  signature editors (with "Available tokens" modal), drop-down lists, a
+  "Document layout" section (logo, document theme, fonts, sizes, widths,
+  print top padding — see below), document footer, mdcms theme block, raw
+  YAML editor. Template and signature-label editors show per-language
+  textareas when multiple languages are defined, updating live as languages
+  are added. Clearing a Document layout field deletes that key from
+  `config.yml` rather than writing a blank value, so it correctly falls back
+  to the app-level config or the built-in default instead of silently
+  overriding a lower-priority value with nothing.
 - **`padding-top-print`** key under `documents:` in `config.yml` sets the
-  top margin (e.g. `2cm`) above the first line when printing or saving as PDF.
+  top margin (e.g. `2cm`) above the first line when printing or saving as PDF;
+  editable directly in the Configuration tab's Document layout section.
+- **Print reliability**: printing/saving as PDF waits for any per-language
+  document web font to finish loading (with a safety timeout) before opening
+  the print dialog, avoiding blank/invisible text from a font that's still
+  downloading.
 - **Ledger.html detail overlay**: clicking any reference, donation, disbursement,
   beneficiary, or donor ID opens an in-page panel showing all field values, the
   document list, and the record's folder/file path with a Copy button. Works
