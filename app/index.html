@@ -977,6 +977,12 @@ function embedJson(id, data) {
     + JSON.stringify(data).replace(/</g, '\\u003c') + '<\/script>';
 }
 
+/* Sort money records newest-first by their own date (date-of-donation /
+ * date-of-disbursement), not by creation/insertion order. */
+function byDateDesc(a, b) {
+  return String(b.date).localeCompare(String(a.date)) || String(b.reference).localeCompare(String(a.reference));
+}
+
 /* ── Money formatting (single fund currency — confirmed decision) ────────── */
 function fundCfg() { return (STATE.ledger && STATE.ledger.config.fund) || {}; }
 function fmtMoney(n) {
@@ -1558,9 +1564,9 @@ button.lnk:hover{opacity:.75;}
     <button type="button" class="tabbtn" data-tab="donations">${esc(S('count-donations'))} (${index.donations.length})</button>
     <button type="button" class="tabbtn" data-tab="donors">${esc(S('count-donors'))} (${index.donors.length})</button>
   </div>
-  <div class="tabpanel" data-panel="disbursements">${moneyTable(index.disbursements.slice().reverse())}</div>
+  <div class="tabpanel" data-panel="disbursements">${moneyTable(index.disbursements.slice().sort(byDateDesc))}</div>
   <div class="tabpanel" data-panel="beneficiaries" hidden>${personTable(index.beneficiaries, index.disbursements, S('count-disbursements'))}</div>
-  <div class="tabpanel" data-panel="donations" hidden>${moneyTable(index.donations.slice().reverse())}</div>
+  <div class="tabpanel" data-panel="donations" hidden>${moneyTable(index.donations.slice().sort(byDateDesc))}</div>
   <div class="tabpanel" data-panel="donors" hidden>${personTable(index.donors, index.donations, S('count-donations'))}</div>
   <div class="foot">${esc(S('ledger-note', { 'fund-name': f.name || 'Fund Ledger' }))}</div>
 </div>
@@ -2808,7 +2814,7 @@ function buildMoneyTab(kind) {
     const head = el('tr');
     [S('col-reference'), S('col-date'), S('col-person'), S('col-amount'), ''].forEach(h => head.appendChild(el('th', null, h)));
     table.appendChild(head);
-    list.slice().reverse().forEach(r => {
+    list.slice().sort(byDateDesc).forEach(r => {
       const tr = el('tr');
       tr.appendChild(el('td', { className: 'fl-mono' }, r.reference));
       tr.appendChild(el('td', null, r.date));
