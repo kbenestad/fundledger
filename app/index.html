@@ -77,8 +77,9 @@ localisation:
         ### Fund Ledger
         Tracks donations and disbursements for a single fund. All data lives in
         a **ledger folder on your own disk** — nothing is uploaded anywhere.
-        Records are immutable, append-only files; `Ledger.html` in the folder
-        is a self-contained index and dashboard you can open in any browser.
+        Records can be edited or deleted from each tab's record list;
+        `Ledger.html` in the folder is a self-contained index and dashboard
+        you can open in any browser.
 
         Requires a Chromium browser (Chrome, Vivaldi, Edge): the File System
         Access API this app is built on does not exist in Firefox or Safari.
@@ -154,8 +155,13 @@ localisation:
       col-created: "Created"
       no-persons: "No records yet — create the first one."
       btn-edit: "Edit"
+      btn-delete: "Delete"
       edit-person-title: "Edit {id}"
       person-updated: "{id} updated."
+      confirm-delete-title: "Delete this record?"
+      confirm-delete-person-message: "{id} — {name} will be permanently deleted. This cannot be undone."
+      confirm-delete-person-linked-message: "{id} — {name} will be permanently deleted. This cannot be undone. {count} existing record(s) reference this ID and will keep showing it after deletion."
+      person-deleted: "{id} deleted."
       btn-open-ledger: "View Ledger"
       new-b-title: "New beneficiary"
       new-d-title: "New donor"
@@ -174,6 +180,12 @@ localisation:
       col-date: "Date"
       col-amount: "Amount"
       col-person: "Linked record"
+      existing-records-title: "Existing records"
+      no-records: "No records yet — create the first one."
+      edit-record-title: "Edit {reference}"
+      record-updated: "Record {reference} updated."
+      confirm-delete-record-message: "{reference} — {amount} will be permanently deleted, including its generated document(s). This cannot be undone."
+      record-deleted: "Record {reference} deleted."
       # ID capture flow
       capture-hint: "Drop a photo, scan or PDF of the document here — or"
       btn-upload: "Choose file"
@@ -786,6 +798,7 @@ const STATE = {
   idFlow: { beneficiary: null, donor: null },         // ID-capture flow state per kind
   personDraft: { beneficiary: null, donor: null },    // { prefill, photo, images, note }
   personEdit: { beneficiary: null, donor: null },     // entry being edited (from index)
+  moneyEdit: { donation: null, disbursement: null },  // entry being edited (from index) + _values
   lang: { donation: null, disbursement: null },        // selected language code per money form
 };
 
@@ -941,6 +954,7 @@ async function closeLedger() {
   STATE.idFlow = { beneficiary: null, donor: null };
   STATE.personDraft = { beneficiary: null, donor: null };
   STATE.personEdit = { beneficiary: null, donor: null };
+  STATE.moneyEdit = { donation: null, disbursement: null };
   STATE.lang = { donation: null, disbursement: null };
   render();
 }
@@ -1825,28 +1839,10 @@ async function savePerson(kind, values, fields, extras) {
   return entry;
 }
 
-async function saveMoneyRecord(kind, form) {
-  const block = STATE.ledger.config[kind] || {};
-  const fields = block.fields || [];
-  const values = form.getValues();
-  const refField = fields.find(f => f.type === 'reference' && (f.reference === 'beneficiary' || f.reference === 'donor'));
-  const personKind = refField ? refField.reference : (kind === 'donation' ? 'donor' : 'beneficiary');
-  const personId = refField ? values[refField.fieldname] : '';
-  const person = (personKind === 'donor' ? idx().donors : idx().beneficiaries).find(p => p.id === personId) || { id: personId, name: '' };
-
-  const refFieldName = (fields.find(f => String(f.type).replace(/\s+/g, '-') === 'random-generator') || {}).fieldname;
-  const reference = (refFieldName && values[refFieldName]) || genReference();
-  const dateField = block['folder-date-field'];
-  const recDate = (dateField && values[dateField]) || todayIso();
-  const amountField = (fields.find(f => f.type === 'number') || {}).fieldname;
-  const amount = amountField ? parseAmount(values[amountField]) : 0;
-
-  const parentName = kind === 'donation' ? 'Donations' : 'Disbursements';
-  const parent = await getDir(STATE.ledger.handle, parentName, true);
-  const folderName = recDate + '_' + (personId || 'X') + '_' + reference;
-  const folder = await getDir(parent, folderName, true);
-
-  // Tokens for document templates: field values (display form) + derived.
+/* Shared by saveMoneyRecord (new folder) and updateMoneyRecord (existing
+ * folder): resolves the template + document config, renders the generated
+ * document(s) and the record.html page for a given reference/date/person. */
+async function buildMoneyDocs(kind, block, fields, values, reference, recDate, person, personKind, createdIso) {
   const disp = displayMap(fields, values);
   const tokens = {};
   fields.forEach(f => { if (f && f.fieldname) tokens[f.fieldname] = disp[f.fieldname] != null ? disp[f.fieldname] : (values[f.fieldname] || ''); });
@@ -1855,6 +1851,8 @@ async function saveMoneyRecord(kind, form) {
   tokens['generated-date'] = todayIso();
   tokens[personKind + '-id'] = person.id || '';
   tokens[personKind + '-name'] = person.name || '';
+  const amountField = (fields.find(f => f.type === 'number') || {}).fieldname;
+  const amount = amountField ? parseAmount(values[amountField]) : 0;
   if (amountField) tokens['amount'] = fmtMoney(amount);
 
   // Pick language spec from STATE (set by language selector in the form).
@@ -1908,8 +1906,6 @@ async function saveMoneyRecord(kind, form) {
     docs.push({ name: reference + '.html', html: docHtml });
   }
 
-  // 1) record folder + files
-  for (const d of docs) await writeFileText(folder, d.name, d.html);
   const fieldRows = fields.filter(f => values[f.fieldname] != null && values[f.fieldname] !== '')
     .map(f => ({ label: f.label || f.fieldname, value: disp[f.fieldname] != null ? disp[f.fieldname] : values[f.fieldname] }));
   const recHtml = recordPageHtml({
@@ -1920,20 +1916,99 @@ async function saveMoneyRecord(kind, form) {
     documents: docs.map(d => d.name),
     jsonId: 'record-data',
     jsonData: { kind, reference, personId: person.id, personName: person.name, date: recDate,
-      amount, values, fieldRows, documents: docs.map(d => d.name), created: todayIso() },
+      amount, values, fieldRows, documents: docs.map(d => d.name), created: createdIso },
   });
+
+  return { docs, recHtml, fieldRows, amount };
+}
+
+async function saveMoneyRecord(kind, form) {
+  const block = STATE.ledger.config[kind] || {};
+  const fields = block.fields || [];
+  const values = form.getValues();
+  const refField = fields.find(f => f.type === 'reference' && (f.reference === 'beneficiary' || f.reference === 'donor'));
+  const personKind = refField ? refField.reference : (kind === 'donation' ? 'donor' : 'beneficiary');
+  const personId = refField ? values[refField.fieldname] : '';
+  const person = (personKind === 'donor' ? idx().donors : idx().beneficiaries).find(p => p.id === personId) || { id: personId, name: '' };
+
+  const refFieldName = (fields.find(f => String(f.type).replace(/\s+/g, '-') === 'random-generator') || {}).fieldname;
+  const reference = (refFieldName && values[refFieldName]) || genReference();
+  const dateField = block['folder-date-field'];
+  const recDate = (dateField && values[dateField]) || todayIso();
+
+  const parentName = kind === 'donation' ? 'Donations' : 'Disbursements';
+  const parent = await getDir(STATE.ledger.handle, parentName, true);
+  const folderName = recDate + '_' + (personId || 'X') + '_' + reference;
+  const folder = await getDir(parent, folderName, true);
+
+  const createdIso = todayIso();
+  const { docs, recHtml, fieldRows, amount } =
+    await buildMoneyDocs(kind, block, fields, values, reference, recDate, person, personKind, createdIso);
+
+  // 1) record folder + files
+  for (const d of docs) await writeFileText(folder, d.name, d.html);
   await writeFileText(folder, 'record.html', recHtml);
   // 2) changelog
   await appendChangelog(kind + '-created', reference,
     (person.id ? person.id + ' ' : '') + fmtMoney(amount) + ' (' + parentName + '/' + folderName + ')');
   // 3) index last
   const entry = { reference, personId: person.id, personName: person.name, date: recDate, amount,
-    folder: parentName + '/' + folderName, created: todayIso(),
+    folder: parentName + '/' + folderName, created: createdIso,
     fields: fieldRows, documents: docs.map(d => d.name) };
   (kind === 'donation' ? idx().donations : idx().disbursements).push(entry);
   await writeLedgerIndex();
 
   return { reference, docs };
+}
+
+/* Update an existing money record in place: same reference/date/folder, new
+ * field values, regenerated document(s) and record.html. */
+async function updateMoneyRecord(kind, entry, form) {
+  const block = STATE.ledger.config[kind] || {};
+  const fields = block.fields || [];
+  const values = form.getValues();
+  const refField = fields.find(f => f.type === 'reference' && (f.reference === 'beneficiary' || f.reference === 'donor'));
+  const personKind = refField ? refField.reference : (kind === 'donation' ? 'donor' : 'beneficiary');
+  const personId = refField ? values[refField.fieldname] : '';
+  const person = (personKind === 'donor' ? idx().donors : idx().beneficiaries).find(p => p.id === personId) || { id: personId, name: '' };
+
+  const parentName = kind === 'donation' ? 'Donations' : 'Disbursements';
+  const folderName = entry.folder.split('/').slice(1).join('/');
+  const parent = await getDir(STATE.ledger.handle, parentName, true);
+  const folder = await getDir(parent, folderName, true);
+
+  const { docs, recHtml, fieldRows, amount } =
+    await buildMoneyDocs(kind, block, fields, values, entry.reference, entry.date, person, personKind, entry.created);
+
+  for (const d of docs) await writeFileText(folder, d.name, d.html);
+  await writeFileText(folder, 'record.html', recHtml);
+  await appendChangelog(kind + '-updated', entry.reference,
+    (person.id ? person.id + ' ' : '') + fmtMoney(amount) + ' (' + parentName + '/' + folderName + ')');
+
+  const list = kind === 'donation' ? idx().donations : idx().disbursements;
+  const i = list.findIndex(r => r.reference === entry.reference);
+  if (i >= 0) {
+    list[i] = Object.assign({}, list[i], {
+      personId: person.id, personName: person.name, amount, fields: fieldRows, documents: docs.map(d => d.name),
+    });
+  }
+  await writeLedgerIndex();
+}
+
+/* Permanently removes a money record's folder (and everything in it —
+ * generated document(s), record.html) and drops it from the index. */
+async function deleteMoneyRecord(kind, entry) {
+  const parentName = kind === 'donation' ? 'Donations' : 'Disbursements';
+  const folderName = entry.folder.split('/').slice(1).join('/');
+  const parent = await getDir(STATE.ledger.handle, parentName, true);
+  await parent.removeEntry(folderName, { recursive: true });
+  await appendChangelog(kind + '-deleted', entry.reference,
+    (entry.personId ? entry.personId + ' ' : '') + fmtMoney(entry.amount) + ' (' + entry.folder + ')');
+
+  const list = kind === 'donation' ? idx().donations : idx().disbursements;
+  const i = list.findIndex(r => r.reference === entry.reference);
+  if (i >= 0) list.splice(i, 1);
+  await writeLedgerIndex();
 }
 
 /* ── Rebuild the index by scanning record files (crash recovery) ─────────── */
@@ -2458,6 +2533,23 @@ async function updatePerson(kind, entry, values, fields, extras) {
   await writeLedgerIndex();
 }
 
+/* Permanently removes a beneficiary/donor's record file and drops it from
+ * the index. Any donation/disbursement records that reference this ID keep
+ * their stored personId/personName (they are immutable and never rewritten)
+ * but the ID will no longer resolve to a live person record. */
+async function deletePerson(kind, entry) {
+  const dirName = kind === 'beneficiary' ? 'Beneficiaries' : 'Donors';
+  const dir = await getDir(STATE.ledger.handle, dirName, false);
+  const fileName = entry.file.split('/').pop();
+  await dir.removeEntry(fileName);
+  await appendChangelog(kind + '-deleted', entry.id, (entry.name || '') + ' (' + fileName + ')');
+
+  const list = kind === 'beneficiary' ? idx().beneficiaries : idx().donors;
+  const i = list.findIndex(p => p.id === entry.id);
+  if (i >= 0) list.splice(i, 1);
+  await writeLedgerIndex();
+}
+
 /* ── Person tabs (Beneficiary / Donor) ───────────────────────────────────── */
 function buildPersonTab(kind) {
   const wrap = el('div', { className: 'fl-tab-body' });
@@ -2533,7 +2625,25 @@ function buildPersonTab(kind) {
           await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
         }
       } }, S('btn-edit'));
-      tr.appendChild(el('td', null, editBtn));
+      const deleteBtn = el('button', { className: 'kb-btn kb-btn--danger kb-btn--sm', onClick: async () => {
+        const linked = (kind === 'beneficiary' ? idx().disbursements : idx().donations).filter(r => r.personId === p.id).length;
+        const message = linked > 0
+          ? S('confirm-delete-person-linked-message', { id: p.id, name: p.name, count: linked })
+          : S('confirm-delete-person-message', { id: p.id, name: p.name });
+        const ok = await kbConfirm({ title: S('confirm-delete-title'), message, confirmLabel: S('btn-delete'), cancelLabel: S('cancel') });
+        if (!ok) return;
+        deleteBtn.disabled = true;
+        try {
+          await deletePerson(kind, p);
+          if (STATE.personEdit[kind] && STATE.personEdit[kind].id === p.id) STATE.personEdit[kind] = null;
+          render();
+        } catch (e) {
+          console.error(e);
+          deleteBtn.disabled = false;
+          await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+        }
+      } }, S('btn-delete'));
+      tr.appendChild(el('td', { className: 'fl-rowbtns' }, [editBtn, deleteBtn]));
       table.appendChild(tr);
     });
     listContent.appendChild(table);
@@ -2628,6 +2738,52 @@ function buildMoneyTab(kind) {
   const personKind = kind === 'donation' ? 'donor' : 'beneficiary';
   const persons = personKind === 'donor' ? idx().donors : idx().beneficiaries;
   const langs = STATE.ledger.config.languages || [];
+  const list = kind === 'donation' ? idx().donations : idx().disbursements;
+
+  /* ── Edit mode ─────────────────────────────────────────────────────── */
+  if (STATE.moneyEdit[kind]) {
+    const entry = STATE.moneyEdit[kind];
+    const card = el('div', { className: 'kb-card' });
+    card.appendChild(el('div', { className: 'kb-card__title' }, S('edit-record-title', { reference: entry.reference })));
+
+    if (langs.length >= 1) {
+      const curCode = STATE.lang[kind] || langs[0].code;
+      const row = el('div', { style: { marginBottom: '12px' } });
+      const sel = el('select', { className: 'kb-select' });
+      langs.forEach(l => {
+        const o = el('option', { value: l.code }, l.name + (l.code !== l.name ? ' (' + l.code + ')' : ''));
+        if (l.code === curCode) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', () => { STATE.lang[kind] = sel.value; });
+      row.appendChild(field(S('select-language'), sel));
+      card.appendChild(row);
+    }
+
+    const form = buildConfigForm(fields);
+    form.setValues(entry._values || {});
+    card.appendChild(form.root);
+    const actions = el('div', { className: 'kb-actions', style: { marginTop: '14px' } });
+    const cancelBtn = el('button', { className: 'kb-btn kb-btn--ghost', onClick: () => { STATE.moneyEdit[kind] = null; render(); } }, S('cancel'));
+    const saveBtn = el('button', { className: 'kb-btn kb-btn--primary', onClick: async () => {
+      if (!form.validate()) return;
+      saveBtn.disabled = true;
+      try {
+        await updateMoneyRecord(kind, entry, form);
+        STATE.moneyEdit[kind] = null;
+        render();
+        await kbAlert({ title: entry.reference, message: S('record-updated', { reference: entry.reference }), icon: KB_ICON.info });
+      } catch (e) {
+        console.error(e);
+        saveBtn.disabled = false;
+        await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+      }
+    } }, S('save'));
+    actions.append(cancelBtn, el('div', { className: 'spacer' }), saveBtn);
+    card.appendChild(actions);
+    wrap.appendChild(card);
+    return wrap;
+  }
 
   // Post-save panel
   const last = STATE.lastSaved[kind];
@@ -2642,6 +2798,67 @@ function buildMoneyTab(kind) {
     }
     wrap.appendChild(done);
   }
+
+  /* ── Existing records (accordion, collapsed by default) ──────────────── */
+  const listContent = el('div');
+  if (!list.length) {
+    listContent.appendChild(el('p', { className: 'fl-muted' }, S('no-records')));
+  } else {
+    const table = el('table', { className: 'fl-table' });
+    const head = el('tr');
+    [S('col-reference'), S('col-date'), S('col-person'), S('col-amount'), ''].forEach(h => head.appendChild(el('th', null, h)));
+    table.appendChild(head);
+    list.slice().reverse().forEach(r => {
+      const tr = el('tr');
+      tr.appendChild(el('td', { className: 'fl-mono' }, r.reference));
+      tr.appendChild(el('td', null, r.date));
+      tr.appendChild(el('td', null, r.personId + ' — ' + r.personName));
+      tr.appendChild(el('td', { className: 'num' }, fmtMoney(r.amount)));
+      const editBtn = el('button', { className: 'kb-btn kb-btn--ghost kb-btn--sm', onClick: async () => {
+        editBtn.disabled = true;
+        try {
+          const parentName = kind === 'donation' ? 'Donations' : 'Disbursements';
+          const folderName = r.folder.split('/').slice(1).join('/');
+          const parent = await getDir(STATE.ledger.handle, parentName, false);
+          const folder = await getDir(parent, folderName, false);
+          const text = await readFileTextOrNull(folder, 'record.html');
+          const data = text ? extractEmbeddedJson(text, 'record-data') : null;
+          STATE.moneyEdit[kind] = Object.assign({}, r, { _values: (data && data.values) || {} });
+          render();
+        } catch (e) {
+          console.error(e);
+          editBtn.disabled = false;
+          await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+        }
+      } }, S('btn-edit'));
+      const deleteBtn = el('button', { className: 'kb-btn kb-btn--danger kb-btn--sm', onClick: async () => {
+        const ok = await kbConfirm({
+          title: S('confirm-delete-title'),
+          message: S('confirm-delete-record-message', { reference: r.reference, amount: fmtMoney(r.amount) }),
+          confirmLabel: S('btn-delete'), cancelLabel: S('cancel'),
+        });
+        if (!ok) return;
+        deleteBtn.disabled = true;
+        try {
+          await deleteMoneyRecord(kind, r);
+          if (STATE.moneyEdit[kind] && STATE.moneyEdit[kind].reference === r.reference) STATE.moneyEdit[kind] = null;
+          render();
+        } catch (e) {
+          console.error(e);
+          deleteBtn.disabled = false;
+          await kbAlert({ title: 'Error', message: S('fs-error', { error: e.message }) });
+        }
+      } }, S('btn-delete'));
+      tr.appendChild(el('td', { className: 'fl-rowbtns' }, [editBtn, deleteBtn]));
+      table.appendChild(tr);
+    });
+    listContent.appendChild(table);
+  }
+  const acc = makeAccordion(
+    [{ label: S('existing-records-title') + ' (' + list.length + ')', content: listContent }],
+    { openAllLabel: S('open-all'), closeAllLabel: S('close-all') }
+  );
+  wrap.appendChild(acc);
 
   const card = el('div', { className: 'kb-card' });
   card.appendChild(el('div', { className: 'kb-card__title' }, S(kind === 'donation' ? 'tab-donation' : 'tab-disbursement')));
