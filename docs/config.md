@@ -148,7 +148,7 @@ donation:
   folder-date-field: date-of-donation
   signatures: 1
   signature-labels:
-    - "{donor-name}"
+    - "Name (PRINTED):"
   template: |
     {logo}
     # {fund-name}

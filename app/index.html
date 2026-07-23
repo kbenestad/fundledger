@@ -459,7 +459,7 @@ donation:
   folder-date-field: date-of-donation
   signatures: 1
   signature-labels:
-    - "{donor-name}"
+    - "Name (PRINTED):"
   template: |
     {logo}
 
@@ -499,7 +499,7 @@ disbursement:
   folder-date-field: date-of-disbursement
   signatures: 2
   signature-labels:
-    - "{beneficiary-name}"
+    - "Name (PRINTED):"
     - "Authorised by"
   template: |
     {logo}
@@ -3094,7 +3094,7 @@ function buildConfigTab() {
           placeholder: 'One label per line' });
         ta.value = rawLabels.join('\n');
         ta.addEventListener('input', () => {
-          const vals = ta.value.split('\n').map(s => s.trimEnd()).filter((_, i, a) => i < a.length - 1 || s.trim());
+          const vals = ta.value.split('\n').map(s => s.trimEnd()).filter((s, i, a) => i < a.length - 1 || s.trim());
           if (langs.length >= 2) {
             if (typeof work[blockKey]['signature-labels'] !== 'object' || Array.isArray(work[blockKey]['signature-labels']))
               work[blockKey]['signature-labels'] = {};
