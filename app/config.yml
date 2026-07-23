@@ -4,7 +4,17 @@
 
 # =============================================================================
 # Document appearance
-# Applied to every generated receipt, acknowledgement, and document.
+# Applied to every generated receipt, acknowledgement, and document, unless
+# overridden by the same key in the ledger's own config.yml (the ledger
+# always wins — see that file's documents: block).
+#
+# Every key below is optional. A key that's commented out inherits the app's
+# built-in default (shown after "default:" in each comment) — it is NOT
+# present in the parsed config at all. Never leave a key active with a blank
+# value: `key:` with nothing after the colon parses to an explicit null,
+# which is a real value that can still shadow a lower-priority default. To
+# fall back to the built-in default, comment the whole line out instead.
+#
 # Templates in the ledger's Templates/ folder can insert {logo} to place
 # the logo, and {signatures:1} / {signatures:2} for signature blocks.
 # =============================================================================
@@ -14,17 +24,17 @@ documents:
   # yes|no — loads assets/logo.png, assets/logo.jpg, or assets/logo.svg
   # and embeds it as base64 so saved HTML files remain self-contained.
   # Drop your logo file into assets/ alongside index.html.
-  logo: yes
-  logo-max-width-web: 200px  # max-width for screen / browser view
-  logo-max-width-pdf: 5cm    # max-width in print / save-as-PDF
+  # logo: yes                  # default: yes
+  # logo-max-width-web: 200px  # max-width for screen / browser view (default: 200px)
+  # logo-max-width-pdf: 5cm    # max-width in print / save-as-PDF (default: 5cm)
 
   # ── Web theme ──────────────────────────────────────────────────────────────
   # Optional mdcms theme applied to the screen rendering of generated documents.
   # Path to a vendored theme YAML file in assets/themes/, e.g.:
   #   theme: assets/themes/nord.yaml
   # See https://kbenestad.github.io/mdcms/sample-sites for available themes.
-  # Leave blank for plain black-on-white.
-  theme:
+  # default: none — plain black-on-white
+  # theme: assets/themes/nord.yaml
 
   # ── Typography ─────────────────────────────────────────────────────────────
   # Font format: "provider:Font Name:weights"
@@ -35,22 +45,23 @@ documents:
   #   bunny:IBM Plex Sans:300,400,600
   #   bunny:IBM Plex Serif:400,600
   #   google:Inter:400,600,700
-  # Leave blank to use the browser's system font.
+  # default: browser's system font
   font-body:     bunny:Schibsted Grotesk:300
   font-heading:  bunny:Schibsted Grotesk:600
 
-  font-size: 15  # body font size in px (screen)
-  line-height: 1.6
+  # font-size: 15    # body font size in px, screen only (default: 15)
+  # line-height: 1.6 # (default: 1.6)
 
   # ── Layout ─────────────────────────────────────────────────────────────────
   # Include CSS units. Use px or em for screen; cm or mm for print/PDF.
-  max-width-web: 720px  # document width for screen view
-  max-width-pdf: 17cm   # document width for print / save-as-PDF
+  # max-width-web: 720px     # document width for screen view (default: 720px)
+  # max-width-pdf: 17cm      # document width for print / save-as-PDF (default: 17cm)
+  # padding-top-print: 2cm   # top margin before first line when printing / saving as PDF (default: 0 — no added top padding)
 
   # ── Footer ──────────────────────────────────────────────────────────────────
   # Optional markdown text appended below every generated receipt, separated by
   # a horizontal rule. Supports {tokens} (e.g. {fund-name}, {reference}).
   # For per-language footers use a mapping: { en: "...", th: "..." }
-  # Leave blank (or omit) for no footer.
+  # default: none
   # footer: |
   #   Confidential — {fund-name}
