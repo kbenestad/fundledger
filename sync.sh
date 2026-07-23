@@ -20,7 +20,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-DEST="assets"
+DEST="app/assets"
 SHARED=(style.css ui.css app.js)
 
 if [[ "${1:-}" == "--from-github" ]]; then
