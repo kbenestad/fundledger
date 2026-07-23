@@ -554,7 +554,7 @@ documents:
 
   # max-width-web: 720px        # document width for screen view (default: 720px)
   # max-width-pdf: 17cm         # document width for print / save-as-PDF (default: 17cm)
-  # padding-top-print: 2cm      # top margin before first line when printing / saving as PDF (default: 0 — no added top padding)
+  # padding-top-print: 2cm      # space above the title (between logo and heading) when printing / saving as PDF (default: 0 — no added spacing)
 
   # footer: |                   # optional markdown footer appended below every receipt (supports {tokens}) (default: none)
   #   Confidential — {fund-name}
@@ -1758,7 +1758,7 @@ h3{font-family:${fontHeading};font-size:${Math.round(fontSize*0.93)}px;margin:14
 p{margin:8px 0;}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}a{color:var(--doc-accent);}
 .doc-logo{max-width:${logoMaxW};height:auto;display:block;margin-bottom:16px;}
 .doc-foot{margin-top:28px;padding-top:10px;border-top:1px solid var(--doc-border);font-size:${footSz}px;color:var(--doc-text-muted);}
-@media print{body{padding:${docsConfig['padding-top-print'] ? docsConfig['padding-top-print'] + ' 0 0' : '0'};background:#fff;color:#000;}.sheet{max-width:${maxWPdf};}.doc-logo{max-width:${logoMaxWPdf};}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}}
+@media print{body{padding:0;background:#fff;color:#000;}h1{padding-top:${docsConfig['padding-top-print'] || '0'};}.sheet{max-width:${maxWPdf};}.doc-logo{max-width:${logoMaxWPdf};}ul,ol{margin:0 0 0 20px;padding:0;}li{margin:2px 0;}ul+ul,ol+ol,ul+ol,ol+ul{margin-top:0;}}
 </style>
 </head>
 <body><div class="sheet">${html}
