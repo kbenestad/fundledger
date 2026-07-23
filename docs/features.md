@@ -13,12 +13,15 @@ on `main`.
 - **Dashboard**: fund name prominent, folder name in monospace; totals
   (donations, disbursements, balance); record counts; recent-activity feed;
   View Ledger button; Rebuild index; Close ledger.
-- **Immutable, append-only records**: beneficiaries/donors saved as
+- **Records, editable and deletable**: beneficiaries/donors saved as
   `<ID>.html` person files (ID is a random 6-character code, the same
   pattern used for donation/disbursement references — no B-/D- prefix or
   per-kind counter); donations/disbursements saved as dated
   `YYYY-MM-DD_<id>_<REF>/` folders containing `record.html` and any
-  generated documents.
+  generated documents. All four categories can be edited or deleted from
+  their tab's record list (see below) — records are no longer strictly
+  immutable/append-only; the changelog still records every create/update/
+  delete action.
 - **`Ledger.html`**: metadata-only index (embedded JSON) + human-readable
   dashboard rewritten on every action; write order is record → changelog →
   index; Rebuild-index action rescans all record folders. Disbursements,
@@ -49,8 +52,16 @@ on `main`.
   Thailand card + passport-MRZ templates; capture → crop → OCR/QR/MRZ
   extraction → review/conflict resolution → `from_id` mapping onto the form;
   cardholder photo and card scans embedded base64 in the person file.
-- **Person list with edit**: beneficiary/donor lists collapsed in an accordion;
-  display-ID column; Edit button loads the existing record for update.
+- **Existing-records list with Edit and Delete**, for all four categories
+  (Beneficiary, Donor, Donation, Disbursement), collapsed in an accordion;
+  display-ID column for persons. Edit loads the existing record into the
+  form for update; for donations/disbursements this regenerates the
+  document(s) and `record.html` in place (same reference/date/folder).
+  Delete permanently removes a person's record file, or a money record's
+  whole folder (including its generated documents); deleting a
+  beneficiary/donor warns how many existing money records reference that ID
+  (they keep showing it — money records are never rewritten by a person
+  deletion) but does not block the delete.
 - **Configuration tab accordion**: fund & currency (plus a `show-config-tab`
   toggle), languages, entry modes, per-block field editors, template +
   signature editors (with "Available tokens" modal), drop-down lists, a
