@@ -1623,7 +1623,7 @@ ${embedJson('ledger-strings', { docs: S('rec-documents'), ref: S('col-reference'
     document.getElementById('ov-linked').innerHTML=linked.length
       ?'<h4>'+esc(rec.linkedLabel||'')+'</h4><table><tr><th>'+esc(LS.ref)+'</th><th>'+esc(LS.date)+'</th><th style="text-align:right">'+esc(LS.amount)+'</th></tr>'+
         linked.map(function(r){
-          return '<tr><td><button class="lnk" data-rec=\''+JSON.stringify(r).replace(/'/g,'&#39;')+'\'>'+esc(r.reference)+'</button></td><td>'+esc(r.date)+'</td><td class="num">'+esc(r.amount)+'</td></tr>';
+          return '<tr><td><button class="lnk" data-rec=\\''+JSON.stringify(r).replace(/'/g,'&#39;')+'\\'>'+esc(r.reference)+'</button></td><td>'+esc(r.date)+'</td><td class="num">'+esc(r.amount)+'</td></tr>';
         }).join('')+'</table>':'';
 
     /* Path display with Copy; add Open for person files (rec.file is an HTML file) */
